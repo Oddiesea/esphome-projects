@@ -16,6 +16,9 @@ __pycache__/
 # CI package output
 /dist/
 
+# Local ESPHome/PlatformIO cache used by CI docker smoke (mirrored locally if needed)
+.esphome-cache/
+
 # Dreo flash artifacts
 devices/dreo-nomad/dumps/
 devices/dreo-nomad/firmware-stage1*.rbl

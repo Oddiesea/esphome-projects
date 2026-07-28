@@ -67,21 +67,31 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Compile-only via the ESPHome image. Mount /cache so PlatformIO can write
-      # when running as the Actions user (avoids Permission denied on /config).
-      # Do not use esphome/build-action: it requires firmware.factory.bin, which
-      # BK72xx/LibreTiny does not produce.
+      # Persist PlatformIO packages + toolchains across runs (mounted at /cache).
+      - name: Cache ESPHome PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: .esphome-cache
+          key: esphome-${{ runner.os }}-${{ matrix.component }}-${{ needs.setup.outputs.esphome_version }}-${{ hashFiles(format('ci/smoke/{0}.yml', matrix.component), 'components/**', 'requirements.txt') }}
+          restore-keys: |
+            esphome-${{ runner.os }}-${{ matrix.component }}-${{ needs.setup.outputs.esphome_version }}-
+            esphome-${{ runner.os }}-${{ matrix.component }}-
+
       - name: Pull ESPHome image
         run: docker pull "ghcr.io/esphome/esphome:${{ needs.setup.outputs.esphome_version }}"
 
+      # Compile-only. Do not use esphome/build-action — it requires
+      # firmware.factory.bin, which BK72xx/LibreTiny does not produce.
+      # HOME must be /cache (writable); passing host HOME breaks --user runs.
       - name: Compile smoke config
         run: |
-          mkdir -p "${RUNNER_TEMP}/esphome-cache"
+          mkdir -p .esphome-cache
           docker run --rm \
             --workdir /github/workspace \
             -v "$PWD":/github/workspace \
-            -v "${RUNNER_TEMP}/esphome-cache:/cache" \
-            -e HOME \
+            -v "$PWD/.esphome-cache:/cache" \
+            -e HOME=/cache \
+            -e PLATFORMIO_CORE_DIR=/cache/platformio \
             -e PLATFORMIO_GLOBALLIB_DIR= \
             --user "$(id -u):$(id -g)" \
             "ghcr.io/esphome/esphome:${{ needs.setup.outputs.esphome_version }}" \
@@ -140,11 +150,12 @@ jobs:
             "${{ matrix.component }}" \
             "${{ needs.package-version.outputs.version }}")
           echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+          echo "Archive basename=$(basename "$archive")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload artifact
+      - name: Upload component zip
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.component }}-component
+          name: ${{ matrix.component }}-${{ needs.package-version.outputs.version }}
           path: ${{ steps.pack.outputs.archive }}
           if-no-files-found: error
           retention-days: 90
