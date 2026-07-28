@@ -67,11 +67,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Use the ESPHome image directly (compile only). esphome/build-action
+      # always expects firmware.factory.bin, which BK72xx/LibreTiny does not emit.
+      - name: Pull ESPHome image
+        run: docker pull "ghcr.io/esphome/esphome:${{ needs.setup.outputs.esphome_version }}"
+
       - name: Compile smoke config
-        uses: esphome/build-action@v7.3.0
-        with:
-          yaml-file: ci/smoke/${{ matrix.component }}.yml
-          version: ${{ needs.setup.outputs.esphome_version }}
+        run: |
+          docker run --rm \
+            --workdir /github/workspace \
+            -v "$PWD":/github/workspace \
+            -v "$HOME:$HOME" \
+            -e HOME \
+            -e PLATFORMIO_GLOBALLIB_DIR= \
+            --user "$(id -u):$(id -g)" \
+            "ghcr.io/esphome/esphome:${{ needs.setup.outputs.esphome_version }}" \
+            compile "ci/smoke/${{ matrix.component }}.yml"
 
   package:
     name: Package (${{ matrix.component }})
