@@ -15,11 +15,7 @@ if [[ ! -d "$src" ]]; then
 fi
 
 if [[ -z "$version" ]]; then
-  if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    version="sha-$(git -C "$repo_root" rev-parse --short HEAD)"
-  else
-    version="local"
-  fi
+  version="$("${repo_root}/ci/scripts/next-version.sh")"
 fi
 
 archive="${repo_root}/dist/${component}-${version}.zip"

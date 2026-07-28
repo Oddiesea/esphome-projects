@@ -67,27 +67,61 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Use the ESPHome image directly (compile only). esphome/build-action
-      # always expects firmware.factory.bin, which BK72xx/LibreTiny does not emit.
+      # Compile-only via the ESPHome image. Mount /cache so PlatformIO can write
+      # when running as the Actions user (avoids Permission denied on /config).
+      # Do not use esphome/build-action: it requires firmware.factory.bin, which
+      # BK72xx/LibreTiny does not produce.
       - name: Pull ESPHome image
         run: docker pull "ghcr.io/esphome/esphome:${{ needs.setup.outputs.esphome_version }}"
 
       - name: Compile smoke config
         run: |
+          mkdir -p "${RUNNER_TEMP}/esphome-cache"
           docker run --rm \
             --workdir /github/workspace \
             -v "$PWD":/github/workspace \
-            -v "$HOME:$HOME" \
+            -v "${RUNNER_TEMP}/esphome-cache:/cache" \
             -e HOME \
             -e PLATFORMIO_GLOBALLIB_DIR= \
             --user "$(id -u):$(id -g)" \
             "ghcr.io/esphome/esphome:${{ needs.setup.outputs.esphome_version }}" \
             compile "ci/smoke/${{ matrix.component }}.yml"
 
+  package-version:
+    name: Resolve package version
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    needs: [setup, test, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version (vYY-M-N)
+        id: version
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="$(ci/scripts/next-version.sh)"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$version"
+            git push origin "refs/tags/$version"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Package version: ${version}"
+
   package:
     name: Package (${{ matrix.component }})
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    needs: [setup, test, smoke]
+    needs: [setup, test, smoke, package-version]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -102,11 +136,9 @@ jobs:
         id: pack
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          if [[ "${{ github.event_name }}" != "release" ]]; then
-            version="sha-${GITHUB_SHA::7}"
-          fi
-          archive=$(ci/scripts/package-component.sh "${{ matrix.component }}" "$version")
+          archive=$(ci/scripts/package-component.sh \
+            "${{ matrix.component }}" \
+            "${{ needs.package-version.outputs.version }}")
           echo "archive=${archive}" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact

@@ -31,7 +31,15 @@ Smoke configs use `path: ../../components` (repo-root `components/`).
 
 1. **setup** — resolves matrix from [`mk/components.mk`](../mk/components.mk) and ESPHome version from [`requirements.txt`](../requirements.txt) via [`scripts/resolve-ci-matrix.sh`](scripts/resolve-ci-matrix.sh)
 2. **test** — matrix over those components, runs `make test COMPONENT=<name>`
-3. **smoke** — matrix over those components, runs `esphome compile ci/smoke/<name>.yml` in the official ESPHome Docker image (compile-only; avoids `build-action` requiring `firmware.factory.bin`, which BK72xx does not produce)
-4. **package** — on `release` or `workflow_dispatch` only; uploads zip artifacts and attaches to the GitHub release
+3. **smoke** — matrix over those components, runs `esphome compile ci/smoke/<name>.yml` in the official ESPHome Docker image with a writable `/cache` mount (compile-only; avoids `build-action` requiring `firmware.factory.bin`, which BK72xx does not produce)
+4. **package-version** — on `release` or `workflow_dispatch`; resolves `vYY-M-N` (2-digit year, month, Nth release that month). On `workflow_dispatch` it creates the next tag; on `release` it uses the release tag
+5. **package** — zips each component as `<name>-vYY-M-N.zip` and uploads artifacts (and attaches to the GitHub release when applicable)
 
 `test` and `smoke` run in parallel after `setup`. Adding a component only requires updating `COMPONENTS` in `mk/components.mk` (plus its `ci/smoke/<name>.yml`).
+
+Local packaging uses the same calver helper:
+
+```bash
+make package   # → dist/<component>-v26-7-1.zip (next free N for this month)
+ci/scripts/next-version.sh
+```
