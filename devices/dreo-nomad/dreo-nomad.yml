@@ -1,0 +1,180 @@
+# ESPHome config for Dreo DR-HTF007S Tower Fan
+# Hardware: WZ07-W (BL2028N/BK7231N) + CMS80F7518 MCU
+# Tuya MCU UART protocol handled by dreo_tuya_mcu component
+
+esphome:
+  name: bedroom-smart-fan
+  friendly_name: Bedroom Smart Fan
+  platformio_options:
+    board_build.bkcrypt_coeffs: "00000000000000000000000000000000"
+    board_build.bkota.key: "0123456789ABCDEF0123456789ABCDEF"
+    board_build.bkota.iv: "0123456789ABCDEF"
+    board_flash.calibration: "0x1E0000+0x1000"
+    board_flash.download: "0x132000+0xAE000"
+
+bk72xx:
+  board: generic-bk7231n-qfn32-tuya
+
+external_components:
+  - source: github://Oddiesea/esphome-projects@main
+    components: [dreo_tuya_mcu]
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "dreo-FALLBACK"
+    password: !secret fallback_wifi_password
+  power_save_mode: none
+
+captive_portal:
+
+web_server:
+  port: 80
+
+api:
+  encryption:
+    key: !secret dreo_api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret dreo_ota_password
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+uart:
+  - id: mcu_uart
+    tx_pin: TX1
+    rx_pin: RX1
+    baud_rate: 115200
+    rx_buffer_size: 512
+
+dreo_tuya_mcu:
+  id: dreo_mcu
+  uart_id: mcu_uart
+  time_id: ha_time
+
+switch:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 1
+    name: "Power"
+    icon: "mdi:power"
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 2
+    name: "LED"
+    icon: "mdi:led-on"
+    entity_category: config
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 5
+    name: "Beeper"
+    icon: "mdi:volume-high"
+    entity_category: config
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 8
+    name: "Oscillation"
+    icon: "mdi:arrow-oscillating"
+
+select:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 3
+    name: "Mode"
+    icon: "mdi:fan"
+    options:
+      - "Normal"
+      - "Natural"
+      - "Sleep"
+      - "Auto"
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 4
+    name: "Speed"
+    icon: "mdi:speedometer"
+    options:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+
+number:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 6
+    name: "Timer On"
+    icon: "mdi:timer"
+    min_value: 0
+    max_value: 480
+    step: 60
+    unit_of_measurement: "min"
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 7
+    name: "Timer Off"
+    icon: "mdi:timer-off"
+    min_value: 0
+    max_value: 480
+    step: 60
+    unit_of_measurement: "min"
+
+sensor:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 11
+    name: "Temperature"
+    unit_of_measurement: "°F"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 9
+    name: "Fault"
+    icon: "mdi:alert-circle"
+    entity_category: diagnostic
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 12
+    name: "Temperature Unit"
+    icon: "mdi:thermometer"
+    entity_category: diagnostic
+
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: diagnostic
+
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    name: "Query DPs"
+    entity_category: diagnostic

@@ -1,0 +1,599 @@
+# Solar Plant — ESPHome config (production / GitHub components)
+# Valence U1-12RJ (12.8V / 45Ah) — set capacity to 45 * number of parallel modules.
+# Voltages below are for a 12V (4S) bank; double for 24V (8S).
+# Specs: https://www.rdbatteries.com/amfile/file/download/file/966/product/4882/
+substitutions:
+  battery_capacity_ah: "45"    # single U1-12RJ module
+  battery_rated_voltage: "1"   # 1=12V, 2=24V, 3=36V, 4=48V (lithium cannot use auto)
+
+esphome:
+  name: mini-solar-plant
+  friendly_name: Solar Plant
+
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: github://Oddiesea/esphome-projects@main
+    components: [valence_rt]
+
+# USB serial logging off; EPEVER uses onboard RS485, Valence uses UART2.
+logger:
+  baud_rate: 0
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: Solar Plant Fallback Hotspot
+    password: !secret fallback_wifi_password
+
+captive_portal:
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+button:
+  - platform: restart
+    name: "Reboot"
+  - platform: safe_mode
+    name: "Reboot in safe mode"
+
+  # EPEVER requires 0x9003–0x900E written together when battery type is User.
+  # This also sets charge low-temp cutoff to 1°C and enables Li low-temp charge protect.
+  - platform: template
+    name: "Apply LiFePO4 settings"
+    id: apply_lifepo4_settings
+    entity_category: config
+    on_press:
+      - lambda: |-
+          using namespace esphome::modbus_controller;
+          auto *ctrl = id(epever);
+
+          // 0x9000–0x900E as one block (voltages are ×100)
+          // Tuned to Valence U1-12RJ: charge 14.6V, float 13.8V, cutoff 10V
+          std::vector<uint16_t> battery = {
+              0x0000,                         // 9000 User
+              ${battery_capacity_ah},         // 9001 Capacity Ah
+              0x0000,                         // 9002 Temp coeff 0 for Li
+              1480,                           // 9003 Over voltage disconnect 14.80 V (> charge)
+              1460,                           // 9004 Charging limit 14.60 V (Valence CV)
+              1460,                           // 9005 Over voltage reconnect 14.60 V
+              1460,                           // 9006 Equalize (= boost) 14.60 V
+              1460,                           // 9007 Boost / absorb 14.60 V
+              1380,                           // 9008 Float 13.80 V (Valence float)
+              1320,                           // 9009 Boost reconnect 13.20 V
+              1250,                           // 900A Low voltage reconnect 12.50 V
+              1240,                           // 900B Under voltage recover 12.40 V
+              1220,                           // 900C Under voltage warning 12.20 V
+              1200,                           // 900D Low voltage disconnect 12.00 V
+              1000,                           // 900E Discharging limit 10.00 V (Valence cutoff)
+          };
+          ctrl->queue_command(
+              ModbusCommandItem::create_write_multiple_command(ctrl, 0x9000, battery.size(), battery));
+
+          // Rated voltage (lithium cannot use auto-recognize)
+          std::vector<uint16_t> rated = {${battery_rated_voltage}};
+          ctrl->queue_command(
+              ModbusCommandItem::create_write_multiple_command(ctrl, 0x9067, 1, rated));
+
+          // Equalize 0 min, Boost/absorb 120 min
+          std::vector<uint16_t> durations = {0, 120};
+          ctrl->queue_command(
+              ModbusCommandItem::create_write_multiple_command(ctrl, 0x906B, durations.size(), durations));
+
+          // Lower temperature charging limit = 1.00 °C (×100)
+          std::vector<uint16_t> charge_lt = {100};
+          ctrl->queue_command(
+              ModbusCommandItem::create_write_multiple_command(ctrl, 0x9010, 1, charge_lt));
+
+          // Li protect (0x9107): EPEVER PC software uses 0x0300 to enable
+          // low-temp charge+discharge protect, 0x0400 to disable.
+          // Do NOT OR onto 0x0400 — that leaves "disabled" set (was 1536 / 0x0600).
+          std::vector<uint16_t> li_protect = {0x0300};
+          ctrl->queue_command(
+              ModbusCommandItem::create_write_multiple_command(ctrl, 0x9107, 1, li_protect));
+
+          ESP_LOGI("epever_cfg", "Queued LiFePO4 User + 1C charge cutoff writes");
+
+# ============================================================
+# ON-BOARD RELAYS (ESP32_Relay_X4_Modbus_v1.3)
+# Active-low on this board
+# ============================================================
+switch:
+  - platform: gpio
+    pin:
+      number: 23
+      inverted: true
+    name: "Relay 1"
+  - platform: gpio
+    pin:
+      number: 5
+      inverted: true
+      ignore_strapping_warning: true
+    name: "Relay 2"
+  - platform: gpio
+    pin:
+      number: 4
+      inverted: true
+    name: "Relay 3"
+  - platform: gpio
+    pin:
+      number: 13
+      inverted: true
+    name: "Relay 4"
+
+status_led:
+  pin:
+    number: 15
+    inverted: true
+    ignore_strapping_warning: true
+
+# ============================================================
+# RS485 / UART buses
+#
+# EPEVER  → onboard SP3485E (screw terminals A/B)
+#   TX GPIO19, RX GPIO18, DE GPIO32
+#   Board A/B/GND → EPEVER M12 pin 2/3/4 (pin 1 is +5V — do not connect)
+#
+# Valence → external MAX485 on Pad TX2 / RX2 / 5V / GND
+#   Pad TX2 (GPIO17) → MAX485 DI
+#   Pad RX2 (GPIO16) ← MAX485 RO
+#   Pad 5V           → MAX485 VCC
+#   Pad GND          → MAX485 GND
+#   MAX485 A/B       → Valence RJ45 RS485 A/B
+#
+# If your MAX485 needs DE+/RE (not auto-direction), tie them together
+# to a free GPIO (e.g. 14) and uncomment flow_control_pin below.
+#
+# Wake quirk: Valence RS485 only talks while charging/discharging.
+# ============================================================
+uart:
+  - id: mod_bus
+    tx_pin: 19
+    rx_pin: 18
+    flow_control_pin: 32
+    baud_rate: 115200
+    stop_bits: 1
+
+  - id: valence_uart
+    tx_pin: 17
+    rx_pin: 16
+    flow_control_pin: 14   # MAX485 DE+/RE tied together
+    baud_rate: 115200
+    stop_bits: 1
+    rx_buffer_size: 512
+
+modbus:
+  id: mod_bus_epever
+  uart_id: mod_bus
+  send_wait_time: 200ms
+
+modbus_controller:
+  - id: epever
+    address: 0x1
+    modbus_id: mod_bus_epever
+    command_throttle: 200ms
+    setup_priority: -10
+    update_interval: 30s
+    on_offline:
+      - binary_sensor.template.publish:
+          id: epever_stale_or_disconnected
+          state: ON
+
+# Valence U1-12RJ — direct on Pad TX2/RX2 (no bridge ESP32)
+valence_rt:
+  id: valence
+  role: direct
+  uart_id: valence_uart
+  update_interval: 30s
+  max_batteries: 1
+
+globals:
+  - id: epever_last_read_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+binary_sensor:
+  # On-board opto-isolated dry-contact inputs
+  - platform: gpio
+    pin:
+      number: 25
+      inverted: true
+    name: "Input 1"
+  - platform: gpio
+    pin:
+      number: 26
+      inverted: true
+    name: "Input 2"
+  - platform: gpio
+    pin:
+      number: 27
+      inverted: true
+    name: "Input 3"
+  - platform: gpio
+    pin:
+      number: 33
+      inverted: true
+    name: "Input 4"
+
+  - platform: template
+    name: "EPEVER Stale or Disconnected"
+    id: epever_stale_or_disconnected
+    device_class: problem
+    entity_category: diagnostic
+    lambda: |-
+      if (id(epever).get_module_offline()) {
+        return true;
+      }
+      if (id(epever_last_read_ms) == 0) {
+        return millis() > 120000;
+      }
+      return (millis() - id(epever_last_read_ms)) > 90000;
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EPEVER Charging Input Volt Failure"
+    register_type: read
+    address: 0x3201
+    bitmask: 0xC000
+
+sensor:
+  - platform: uptime
+    name: "Uptime"
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: pv_voltage
+    name: "PV Array Voltage"
+    address: 0x3100
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: pv_current
+    name: "PV Array Current"
+    address: 0x3101
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: pv_power
+    name: "PV Array Power"
+    address: 0x3102
+    register_count: 2
+    register_type: read
+    value_type: U_DWORD_R
+    unit_of_measurement: "W"
+    device_class: power
+    accuracy_decimals: 1
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_voltage
+    name: "Charging Voltage"
+    address: 0x3104
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_current
+    name: "Charging Current"
+    address: 0x3105
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_power
+    name: "Charging Power"
+    address: 0x3106
+    register_count: 2
+    register_type: read
+    value_type: U_DWORD_R
+    unit_of_measurement: "W"
+    device_class: power
+    accuracy_decimals: 1
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: load_voltage
+    name: "Load Voltage"
+    address: 0x310C
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: load_current
+    name: "Load Current"
+    address: 0x310D
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: load_power
+    name: "Load Power"
+    address: 0x310E
+    register_count: 2
+    register_type: read
+    value_type: U_DWORD_R
+    unit_of_measurement: "W"
+    device_class: power
+    accuracy_decimals: 1
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_temperature
+    name: "Battery Temperature"
+    address: 0x3110
+    register_type: read
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: controller_temperature
+    name: "Controller Temperature"
+    address: 0x3111
+    register_type: read
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_soc
+    name: "Battery SOC"
+    address: 0x311A
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    device_class: battery
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_voltage
+    name: "Battery Voltage"
+    address: 0x331A
+    register_type: read
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+    on_value:
+      then:
+        - lambda: |-
+            id(epever_last_read_ms) = millis();
+            if (id(epever_stale_or_disconnected).state) {
+              id(epever_stale_or_disconnected).publish_state(false);
+            }
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_current
+    name: "Battery Current"
+    address: 0x331B
+    register_count: 2
+    register_type: read
+    value_type: S_DWORD_R
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: generated_energy_today
+    name: "Generated Energy Today"
+    address: 0x330C
+    register_count: 2
+    register_type: read
+    value_type: U_DWORD_R
+    unit_of_measurement: "Wh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    filters: [multiply: 10.0]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: generated_energy_total
+    name: "Generated Energy Total"
+    address: 0x3312
+    register_count: 2
+    register_type: read
+    value_type: U_DWORD_R
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charger_status_raw
+    name: "Charger Status (raw)"
+    address: 0x3201
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  # ---- Valence U1-12RJ (direct RS485) ----
+  - platform: valence_rt
+    valence_rt_id: valence
+    battery: 1
+    soc:
+      name: "Valence Battery SOC"
+    voltage:
+      name: "Valence Battery Voltage"
+    current:
+      # I1 — pack terminal current (also used for power)
+      name: "Valence Battery Current"
+    current_2:
+      # I2 — can read lower than I1 while balancing during charge
+      name: "Valence Battery Current 2"
+    power:
+      # P = V × I1 (signed: + charge / − discharge)
+      name: "Valence Battery Power"
+    temperature:
+      name: "Valence Battery Temperature"
+    temperature_pcb:
+      name: "Valence Battery PCB Temperature"
+    cell_voltage_1:
+      name: "Valence Cell 1 Voltage"
+    cell_voltage_2:
+      name: "Valence Cell 2 Voltage"
+    cell_voltage_3:
+      name: "Valence Cell 3 Voltage"
+    cell_voltage_4:
+      name: "Valence Cell 4 Voltage"
+
+  # ---- Settings readback (holding registers) ----
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_type_raw
+    name: "Battery Type (raw)"
+    address: 0x9000
+    register_type: holding
+    value_type: U_WORD
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    # 0=User 1=Sealed 2=GEL 3=Flooded 4=LFP4S 5=LFP8S 6=LFP15S 7=LFP16S ...
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "Battery Capacity Setting"
+    address: 0x9001
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "Ah"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "Boost / Absorb Voltage Setting"
+    address: 0x9007
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    entity_category: diagnostic
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "Float Voltage Setting"
+    address: 0x9008
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    entity_category: diagnostic
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "Low Voltage Disconnect Setting"
+    address: 0x900D
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    entity_category: diagnostic
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charge_low_temp_setting
+    name: "Charge Low Temp Cutoff Setting"
+    address: 0x9010
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    filters: [multiply: 0.01]
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: li_protect_raw
+    name: "Li Protect Flags (raw)"
+    address: 0x9107
+    register_type: holding
+    value_type: U_WORD
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    # bit0x200 = low-temp charge protect enabled
+
+number:
+  # Writable alone (does not need the voltage block). Range on EPEVER: -40…+10 °C
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "Charge Low Temp Cutoff"
+    id: charge_low_temp_number
+    address: 0x9010
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    entity_category: config
+    min_value: -40
+    max_value: 10
+    step: 1
+    multiply: 100
+    use_write_multiple: true

@@ -1,0 +1,39 @@
+# Stage 1 (WiFi only): no UART/Tuya — avoids MCU protocol crashes on first boot.
+# Build: python3 tools/build_stage1.py --profile wifi-only
+# Flash: python3 upload.py firmware-stage1-wifi-only.rbl --raw
+esphome:
+  name: bedroom-smart-fan
+  platformio_options:
+    board_build.bkcrypt_coeffs: "00000000000000000000000000000000"
+    board_build.bkota.key: "0123456789ABCDEF0123456789ABCDEF"
+    board_build.bkota.iv: "0123456789ABCDEF"
+    board_flash.calibration: "0x1E0000+0x1000"
+    board_flash.download: "0x133000+0x9F220"
+
+bk72xx:
+  board: generic-bk7231n-qfn32-tuya
+
+logger:
+  level: WARN
+  baud_rate: 0
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "dreo-FALLBACK"
+    password: !secret fallback_wifi_password
+  power_save_mode: none
+
+captive_portal:
+
+web_server:
+  port: 80
+
+api:
+  encryption:
+    key: !secret dreo_api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret dreo_ota_password

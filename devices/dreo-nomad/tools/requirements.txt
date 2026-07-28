@@ -1,0 +1,2 @@
+pyserial>=3.5
+ltchiptool>=4.0.0

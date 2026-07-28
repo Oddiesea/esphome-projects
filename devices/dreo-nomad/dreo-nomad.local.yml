@@ -1,0 +1,64 @@
+# Local dev/smoke config for dreo_tuya_mcu component.
+# Uses local external_components so you can compile/test component changes quickly.
+esphome:
+  name: bedroom-smart-fan-local
+  friendly_name: Bedroom Smart Fan Local
+  platformio_options:
+    board_build.bkcrypt_coeffs: "00000000000000000000000000000000"
+    board_build.bkota.key: "0123456789ABCDEF0123456789ABCDEF"
+    board_build.bkota.iv: "0123456789ABCDEF"
+    board_flash.calibration: "0x1E0000+0x1000"
+    board_flash.download: "0x132000+0xAE000"
+
+bk72xx:
+  board: generic-bk7231n-qfn32-tuya
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [dreo_tuya_mcu]
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "dreo-FALLBACK"
+    password: !secret fallback_wifi_password
+  power_save_mode: none
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret dreo_api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret dreo_ota_password
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+uart:
+  - id: mcu_uart
+    tx_pin: TX1
+    rx_pin: RX1
+    baud_rate: 115200
+    rx_buffer_size: 512
+
+dreo_tuya_mcu:
+  id: dreo_mcu
+  uart_id: mcu_uart
+  time_id: ha_time
+
+switch:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 1
+    name: "Power"

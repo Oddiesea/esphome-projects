@@ -1,0 +1,22 @@
+# ESPHome build artifacts
+**/.esphome/
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets (symlinked from repo root into projects)
+/secrets.yaml
+**/secrets.yaml
+!secrets.yaml.example
+
+# Host C++ test builds
+**/tests/build/
+/build/
+
+# CI package output
+/dist/
+
+# Dreo flash artifacts
+devices/dreo-nomad/dumps/
+devices/dreo-nomad/firmware-stage1*.rbl
+devices/dreo-nomad/firmware-stage1*.otau

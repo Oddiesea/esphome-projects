@@ -1,0 +1,55 @@
+# Minimal ESPHome config — compile-test valence_rt (ESP32 / esp-idf).
+esphome:
+  name: valence-rt-test
+  friendly_name: Valence RT Component Test
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: "ci-ssid"
+  password: "ci-password-not-real"
+
+uart:
+  id: valence_uart
+  tx_pin: 17
+  rx_pin: 16
+  baud_rate: 115200
+  stop_bits: 1
+  rx_buffer_size: 512
+
+valence_rt:
+  id: valence
+  role: direct
+  uart_id: valence_uart
+  update_interval: 30s
+  max_batteries: 1
+
+sensor:
+  - platform: valence_rt
+    valence_rt_id: valence
+    battery: 1
+    soc:
+      name: "Battery SOC"
+    voltage:
+      name: "Battery Voltage"
+    current:
+      name: "Battery Current"
+    power:
+      name: "Battery Power"
+    temperature:
+      name: "Battery Temperature"

@@ -1,0 +1,47 @@
+# Minimal ESPHome config — compile-test dreo_tuya_mcu (BK7231N / libretiny).
+esphome:
+  name: dreo-tuya-mcu-test
+  friendly_name: Dreo Tuya MCU Component Test
+  platformio_options:
+    board_build.bkcrypt_coeffs: "00000000000000000000000000000000"
+    board_build.bkota.key: "0123456789ABCDEF0123456789ABCDEF"
+    board_build.bkota.iv: "0123456789ABCDEF"
+    board_flash.calibration: "0x1E0000+0x1000"
+    board_flash.download: "0x132000+0xAE000"
+
+bk72xx:
+  board: generic-bk7231n-qfn32-tuya
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [dreo_tuya_mcu]
+
+logger:
+  baud_rate: 0
+
+wifi:
+  ssid: "ci-ssid"
+  password: "ci-password-not-real"
+
+time:
+  - platform: sntp
+    id: ha_time
+
+uart:
+  - id: mcu_uart
+    tx_pin: TX1
+    rx_pin: RX1
+    baud_rate: 115200
+
+dreo_tuya_mcu:
+  id: dreo_mcu
+  uart_id: mcu_uart
+  time_id: ha_time
+
+switch:
+  - platform: dreo_tuya_mcu
+    dreo_tuya_mcu_id: dreo_mcu
+    datapoint: 1
+    name: "Power"
