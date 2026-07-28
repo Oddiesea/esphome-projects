@@ -34,6 +34,9 @@ rm -f "$archive"
   zip -rq "$(basename "$archive")" "components/${component}"
 )
 
+echo "$archive" >&2
+ls -lah "$archive" >&2
+unzip -l "$archive" >&2
+
+# Machine-readable path on stdout (for CI capture).
 echo "$archive"
-ls -lah "$archive"
-unzip -l "$archive"

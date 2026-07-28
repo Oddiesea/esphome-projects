@@ -74,8 +74,12 @@ Single `secrets.yaml` at repo root (gitignored). Template:
 wifi_ssid: "..."
 wifi_password: "..."
 fallback_wifi_password: "..."
-api_encryption_key: "..."   # solar-plant
-dreo_api_encryption_key: "..."   # dreo-nomad
+
+# solar-plant (mini-solar-plant)
+api_encryption_key: "..."
+
+# dreo-nomad (bedroom-smart-fan)
+dreo_api_encryption_key: "..."
 dreo_ota_password: "..."
 ```
 
