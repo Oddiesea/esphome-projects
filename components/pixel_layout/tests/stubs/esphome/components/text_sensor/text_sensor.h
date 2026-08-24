@@ -17,6 +17,7 @@ class TextSensor {
     for (auto &cb : this->callbacks_)
       cb(value);
   }
+  void publish_state(const std::string &value) { this->set_state(value); }
   void clear_state() { this->has_state_ = false; }
   void add_on_state_callback(std::function<void(const std::string &)> cb) { this->callbacks_.push_back(std::move(cb)); }
 
