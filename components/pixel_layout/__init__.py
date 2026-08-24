@@ -225,10 +225,17 @@ async def _codegen_weather_icons(var, config: ConfigType) -> None:
         name = f"pixel_layout_bitmap_{n}"
         body = ", ".join(str(HexInt(b)) for b in data)
         cg.add_global(RawStatement(f"static const uint8_t {name}[] PROGMEM = {{{body}}};"))
+        # Schema (and theme merge) already ran validate_color → dicts; only the
+        # string fallback needs converting before _color_expr.
         if CONF_COLOR not in icon_cfg:
-            icon_cfg[CONF_COLOR] = "white"
-        color = _color_expr(validate_color(icon_cfg[CONF_COLOR]))
-        palette = [validate_color(c) for c in (icon_cfg.get(CONF_PALETTE) or [])]
+            icon_cfg[CONF_COLOR] = validate_color("white")
+        color_spec = icon_cfg[CONF_COLOR]
+        if not isinstance(color_spec, dict):
+            color_spec = validate_color(color_spec)
+        color = _color_expr(color_spec)
+        palette = []
+        for c in icon_cfg.get(CONF_PALETTE) or []:
+            palette.append(c if isinstance(c, dict) else validate_color(c))
         if palette:
             pn = CORE.data.setdefault("pixel_layout_weather_pal_n", 0)
             CORE.data["pixel_layout_weather_pal_n"] = pn + 1
