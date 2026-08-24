@@ -60,9 +60,11 @@ void Hub75DmaDisplay::setup() {
       this->virtual_->setRotation(this->rotation_);
   }
 
+#ifdef USE_SENSOR
   if (this->adaptive_lux_sensor_ != nullptr) {
     this->adaptive_lux_sensor_->add_on_state_callback([this](float lux) { this->on_lux_(lux); });
   }
+#endif
 }
 
 void Hub75DmaDisplay::update() {
@@ -95,10 +97,12 @@ void Hub75DmaDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Clock phase: %s", YESNO(cfg.clkphase));
   ESP_LOGCONFIG(TAG, "  Double buffer: %s", YESNO(cfg.double_buff));
   ESP_LOGCONFIG(TAG, "  Brightness: %u", this->initial_brightness_);
+#ifdef USE_SENSOR
   if (this->adaptive_lux_sensor_ != nullptr) {
     ESP_LOGCONFIG(TAG, "  Adaptive brightness: lux sensor set, range %u-%u, lux_ref %.0f", this->adaptive_min_,
                   this->adaptive_max_, this->adaptive_lux_reference_);
   }
+#endif
 }
 
 void Hub75DmaDisplay::set_brightness(uint8_t brightness) {
@@ -126,9 +130,11 @@ void Hub75DmaDisplay::register_power_switch(Hub75DmaPowerSwitch *power_switch) {
   this->power_switches_.push_back(power_switch);
 }
 
+#ifdef USE_SENSOR
 void Hub75DmaDisplay::set_adaptive_lux_sensor(sensor::Sensor *sensor) {
   this->adaptive_lux_sensor_ = sensor;
 }
+#endif
 
 void Hub75DmaDisplay::set_adaptive_compensation(Hub75DmaCompensation *compensation) {
   this->adaptive_compensation_ = compensation;

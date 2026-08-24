@@ -5,8 +5,10 @@
 #include "esphome/core/gpio.h"
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/number/number.h"
-#include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
 
 // Vendor VirtualMatrixPanel headers trip -Wparentheses / -Wtype-limits /
 // -Wimplicit-fallthrough on stock ESP-IDF builds; silence only around the include.
@@ -69,7 +71,9 @@ class Hub75DmaDisplay : public display::DisplayBuffer {
   void register_power_switch(Hub75DmaPowerSwitch *power_switch);
   void add_on_power_state_callback(std::function<void(bool)> cb) { this->power_state_cbs_.push_back(std::move(cb)); }
 
+#ifdef USE_SENSOR
   void set_adaptive_lux_sensor(sensor::Sensor *sensor);
+#endif
   void set_adaptive_compensation(Hub75DmaCompensation *compensation);
   void set_adaptive_enable_switch(Hub75DmaAdaptiveSwitch *enable);
   void set_adaptive_range(uint8_t min_brightness, uint8_t max_brightness, float lux_reference);
@@ -101,7 +105,9 @@ class Hub75DmaDisplay : public display::DisplayBuffer {
   std::vector<Hub75DmaPowerSwitch *> power_switches_;
   std::vector<std::function<void(bool)>> power_state_cbs_;
 
+#ifdef USE_SENSOR
   sensor::Sensor *adaptive_lux_sensor_{nullptr};
+#endif
   Hub75DmaCompensation *adaptive_compensation_{nullptr};
   Hub75DmaAdaptiveSwitch *adaptive_enable_{nullptr};
   bool adaptive_enabled_{true};
