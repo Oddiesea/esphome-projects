@@ -3,7 +3,7 @@ substitutions:
   panel_width: "128"
   panel_height: "64"
   brightness: "80"
-  ha_example_weather_condition_entity: weather.home
+  ha_example_weather_condition_entity: weather.forecast_home
 
 esphome:
   name: waveshare-matrix-local
@@ -57,7 +57,8 @@ display:
     panel_width: ${panel_width}
     panel_height: ${panel_height}
     brightness: ${brightness}
-    update_interval: 1s  # pixel_layout stops the display poller and ticks only when dirty
+    driver: FM6126A
+    update_interval: 1s  # paint poller; pixel_layout stops it. DMA scan stays ~60 Hz.
 
 number:
   - platform: hub75_dma

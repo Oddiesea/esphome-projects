@@ -45,7 +45,7 @@ display:
     # chain_type: top_right_down   # default for a stack
 ```
 
-The example uses [`pixel_layout`](../../components/pixel_layout/) via `plumber-clock.package.yml`. Remap `ha_example_weather_condition_entity` to your Home Assistant weather entity. Preview layouts in [`configurators/pixel_layout/`](../../configurators/pixel_layout/). If colors look swapped or the image is garbled, try `driver: FM6126A` (common on indoor ICN2038S panels).
+The example uses [`pixel_layout`](../../components/pixel_layout/) via `plumber-clock.package.yml`. Remap `ha_example_weather_condition_entity` to your Home Assistant weather entity. Preview layouts in [`configurators/pixel_layout/`](../../configurators/pixel_layout/). The Waveshare [Arduino example](https://github.com/waveshareteam/ESP32-S3-RGB-Matrix/blob/main/example/arduino_v3.3.7/01_SimpleTestShapes/01_SimpleTestShapes.ino) sets `driver: FM6126A` and `clock_phase: false`; the board preset does the same. Do not set `update_interval` hoping to change scan rate — that is the ESPHome paint poller, not HUB75 refresh.
 
 ## Build / flash
 

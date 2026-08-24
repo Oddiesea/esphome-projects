@@ -30,10 +30,10 @@ void Hub75DmaDisplay::set_pins(InternalGPIOPin *r1, InternalGPIOPin *g1, Interna
 }
 
 void Hub75DmaDisplay::setup() {
-  const uint32_t interval_ms = this->get_update_interval();
-  if (interval_ms > 0 && interval_ms <= 1000) {
-    this->mxconfig_.min_refresh_rate = static_cast<uint8_t>(1000 / interval_ms);
-  }
+  // Leave min_refresh_rate at the library default (~60 Hz). ESPHome's
+  // update_interval is the paint poller, not the HUB75 scan rate — mapping
+  // 1s (pixel_layout stops the poller) onto min_refresh_rate caused a 1 Hz
+  // rolling flicker and crushed BCM colour (red/yellow cast).
 
   this->dma_display_ = new MatrixPanel_I2S_DMA(this->mxconfig_);  // NOLINT(cppcoreguidelines-owning-memory)
   if (this->dma_display_ == nullptr || !this->dma_display_->begin()) {

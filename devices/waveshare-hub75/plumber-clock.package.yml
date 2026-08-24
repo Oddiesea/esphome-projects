@@ -1,7 +1,7 @@
 # Plumber clock layout, fonts, and HA weather import.
 # Overlay PNG lives in assets/arcade_bg.yml (device, not the component).
 time:
-  - platform: sntp
+  - platform: homeassistant
     id: sntp_time
     timezone: Europe/London
 

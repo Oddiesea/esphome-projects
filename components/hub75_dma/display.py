@@ -129,6 +129,10 @@ def _apply_board_defaults(config: ConfigType) -> ConfigType:
             config[key] = PIN_SCHEMA(config[key])
         elif key == CONF_CLOCK_PHASE:
             config[key] = cv.boolean(config[key])
+
+    # Waveshare demo firmware (arduino 01_SimpleTestShapes) uses FM6126A + clkphase false.
+    if board_name == "waveshare-esp32-s3-rgb-matrix" and CONF_DRIVER not in config:
+        config[CONF_DRIVER] = cv.enum(SHIFT_DRIVERS, upper=True, space="_")("FM6126A")
     return config
 
 
