@@ -219,6 +219,22 @@ class PixelLayoutNightHourNumber : public number::Number, public Component {
 };
 #endif
 
+#ifdef USE_TEXT_SENSOR
+class PixelLayoutScreenLabelTextSensor : public text_sensor::TextSensor, public Component {
+ public:
+  void set_parent(PixelLayout *parent) { this->parent_ = parent; }
+  void set_screen_index(size_t index) { this->index_ = index; }
+  void setup() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+ protected:
+  void sync_();
+  PixelLayout *parent_{nullptr};
+  size_t index_{0};
+};
+#endif
+
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
 #ifdef USE_TEXT_SENSOR
 class PixelLayoutSdStatusTextSensor : public text_sensor::TextSensor, public Component {

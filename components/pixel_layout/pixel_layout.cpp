@@ -1175,6 +1175,12 @@ void PixelLayout::setup() {
   this->evaluate_night_schedule();
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
   this->sd_storage_.setup();
+  if (this->sd_storage_.use_sd_layout()) {
+    std::string sd_err;
+    this->load_playlist_from_sd(this->sd_root_path_, &sd_err);
+    if (!sd_err.empty())
+      this->sd_storage_.set_status(sd_err);
+  }
 #endif
   this->set_timeout(0, [this]() { this->tick_(); });
 }
@@ -2043,12 +2049,188 @@ void PixelLayout::render_(display::Display &it) {
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
 void PixelLayout::configure_sd_storage(const std::string &mount_path, const std::string &root_path, int clk_pin,
                                        int cmd_pin, int d0_pin, uint16_t upload_port) {
+  this->sd_root_path_ = root_path;
   this->sd_storage_.configure(mount_path, root_path, clk_pin, cmd_pin, d0_pin, upload_port);
+  this->sd_storage_.set_layout(this);
+}
+
+#ifdef USE_SENSOR
+void PixelLayout::register_sensor_lookup(const std::string &id, sensor::Sensor *sensor) {
+  if (id.empty() || sensor == nullptr)
+    return;
+  this->sensor_lookup_.emplace_back(id, sensor);
+}
+
+sensor::Sensor *PixelLayout::lookup_sensor(const char *id) const {
+  if (id == nullptr)
+    return nullptr;
+  for (const auto &entry : this->sensor_lookup_) {
+    if (entry.first == id)
+      return entry.second;
+  }
+  return nullptr;
+}
+#endif
+
+#ifdef USE_TEXT_SENSOR
+void PixelLayout::register_text_sensor_lookup(const std::string &id, text_sensor::TextSensor *sensor) {
+  if (id.empty() || sensor == nullptr)
+    return;
+  this->text_sensor_lookup_.emplace_back(id, sensor);
+}
+
+text_sensor::TextSensor *PixelLayout::lookup_text_sensor(const char *id) const {
+  if (id == nullptr)
+    return nullptr;
+  for (const auto &entry : this->text_sensor_lookup_) {
+    if (entry.first == id)
+      return entry.second;
+  }
+  return nullptr;
+}
+#endif
+
+#ifdef USE_TIME
+void PixelLayout::register_time_lookup(const std::string &id, time::RealTimeClock *rtc) {
+  if (id.empty() || rtc == nullptr)
+    return;
+  this->time_lookup_.emplace_back(id, rtc);
+}
+
+time::RealTimeClock *PixelLayout::lookup_time(const char *id) const {
+  if (id == nullptr)
+    return nullptr;
+  for (const auto &entry : this->time_lookup_) {
+    if (entry.first == id)
+      return entry.second;
+  }
+  return nullptr;
+}
+#endif
+
+#ifdef USE_FONT
+void PixelLayout::register_font_lookup(const std::string &id, font::Font *font) {
+  if (id.empty() || font == nullptr)
+    return;
+  this->font_lookup_.emplace_back(id, font);
+}
+
+font::Font *PixelLayout::lookup_font(const char *id) const {
+  if (id == nullptr)
+    return this->font_;
+  for (const auto &entry : this->font_lookup_) {
+    if (entry.first == id)
+      return entry.second;
+  }
+  return this->font_;
+}
+#endif
+
+void PixelLayout::backup_progmem_playlist_() {
+  if (this->progmem_playlist_saved_)
+    return;
+  this->progmem_screens_ = this->screens_;
+  this->progmem_duration_ms_ = this->screen_duration_ms_;
+  this->progmem_transition_ = this->screen_transition_;
+  this->progmem_transition_ms_ = this->screen_transition_ms_;
+  this->progmem_screen_ids_ = this->screen_ids_;
+  this->progmem_enabled_flags_ = this->screen_enabled_flags_;
+  this->progmem_seen_ = this->screen_seen_;
+  this->progmem_playlist_saved_ = true;
+}
+
+void PixelLayout::clear_active_playlist_() {
+  this->sd_owned_widgets_.clear();
+  this->sd_owned_images_.clear();
+  this->screens_.clear();
+  this->screen_duration_ms_.clear();
+  this->screen_transition_.clear();
+  this->screen_transition_ms_.clear();
+  this->screen_ids_.clear();
+  this->screen_enabled_flags_.clear();
+  this->screen_seen_.clear();
+  this->root_ = nullptr;
+  this->screen_index_ = 0;
+  this->next_index_ = 0;
+  this->laid_out_ = false;
+}
+
+bool PixelLayout::apply_sd_playlist(const std::vector<SdScreenSpec> &specs, std::vector<std::unique_ptr<Widget>> owned,
+                                    std::vector<SdOwnedImage> images, std::string *err) {
+  if (specs.empty()) {
+    if (err)
+      *err = "empty sd playlist";
+    return false;
+  }
+  this->backup_progmem_playlist_();
+  this->clear_active_playlist_();
+  this->sd_owned_widgets_ = std::move(owned);
+  this->sd_owned_images_ = std::move(images);
+  for (const SdScreenSpec &spec : specs) {
+    if (spec.root == nullptr)
+      continue;
+    this->add_screen(spec.root, spec.duration_ms, spec.transition, spec.transition_ms, spec.id);
+  }
+  if (this->screens_.empty()) {
+    if (err)
+      *err = "no sd screens applied";
+    return false;
+  }
+  const int w = this->ctx_.width();
+  const int h = this->ctx_.height();
+  for (Widget *screen : this->screens_) {
+    screen->bind(this);
+    screen->layout(0, 0, w, h);
+  }
+  this->ensure_enabled_vectors_();
+  this->load_prefs_();
+  this->screen_index_ = std::min(this->screen_index_, this->screens_.size() - 1);
+  this->next_index_ = this->screen_index_;
+  this->screen_started_ms_ = millis();
+  this->laid_out_ = true;
+  this->dirty_ = true;
+  this->notify_playlist_();
+  return true;
+}
+
+void PixelLayout::restore_progmem_playlist(std::string *err) {
+  if (!this->progmem_playlist_saved_) {
+    if (err)
+      *err = "no progmem playlist saved";
+    return;
+  }
+  this->clear_active_playlist_();
+  this->screens_ = this->progmem_screens_;
+  this->screen_duration_ms_ = this->progmem_duration_ms_;
+  this->screen_transition_ = this->progmem_transition_;
+  this->screen_transition_ms_ = this->progmem_transition_ms_;
+  this->screen_ids_ = this->progmem_screen_ids_;
+  this->screen_enabled_flags_ = this->progmem_enabled_flags_;
+  this->screen_seen_ = this->progmem_seen_;
+  this->root_ = this->screens_.empty() ? nullptr : this->screens_[0];
+  this->screen_index_ = std::min(this->screen_index_, this->screens_.empty() ? 0 : this->screens_.size() - 1);
+  this->laid_out_ = false;
+  this->dirty_ = true;
+  this->notify_playlist_();
+  if (err)
+    *err = "restored progmem playlist";
+}
+
+bool PixelLayout::load_playlist_from_sd(const std::string &root, std::string *err) {
+  if (!this->sd_storage_.use_sd_layout()) {
+    this->restore_progmem_playlist(err);
+    return true;
+  }
+  SdPlaylistLoader loader(this);
+  return loader.load(root, err);
 }
 
 void PixelLayout::reload_from_sd() {
   std::string err;
-  this->sd_storage_.reload_layout(&err);
+  if (this->load_playlist_from_sd(this->sd_root_path_, &err))
+    this->sd_storage_.set_status(err.empty() ? "sd layout loaded" : err);
+  else
+    this->sd_storage_.set_status(err.empty() ? "sd reload failed" : err);
 }
 #endif
 

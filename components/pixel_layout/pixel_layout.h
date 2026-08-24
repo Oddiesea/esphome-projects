@@ -3,16 +3,13 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "esphome/core/color.h"
 #include "esphome/core/component.h"
 #include "esphome/components/display/display.h"
-
-#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
-#include "esphome/components/pixel_layout/sd_storage.h"
-#endif
 
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"
@@ -78,6 +75,12 @@ enum class ScreenTransition : uint8_t {
   DISSOLVE,
   BLINDS
 };
+
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+#include "esphome/components/pixel_layout/sd_storage.h"
+#include "esphome/components/pixel_layout/sd_loader.h"
+#endif
+
 const char *weather_glyph(const char *condition);
 std::string weather_label(const char *condition);
 void weather_key(const char *condition, char *key, size_t key_size);
@@ -819,8 +822,28 @@ class PixelLayout : public Component {
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
   void configure_sd_storage(const std::string &mount_path, const std::string &root_path, int clk_pin, int cmd_pin,
                             int d0_pin, uint16_t upload_port);
+  bool load_playlist_from_sd(const std::string &root, std::string *err);
+  void restore_progmem_playlist(std::string *err);
+  bool apply_sd_playlist(const std::vector<SdScreenSpec> &specs, std::vector<std::unique_ptr<Widget>> owned,
+                         std::vector<SdOwnedImage> images, std::string *err);
   void reload_from_sd();
   SdStorageManager &sd_storage() { return this->sd_storage_; }
+#ifdef USE_SENSOR
+  void register_sensor_lookup(const std::string &id, sensor::Sensor *sensor);
+  sensor::Sensor *lookup_sensor(const char *id) const;
+#endif
+#ifdef USE_TEXT_SENSOR
+  void register_text_sensor_lookup(const std::string &id, text_sensor::TextSensor *sensor);
+  text_sensor::TextSensor *lookup_text_sensor(const char *id) const;
+#endif
+#ifdef USE_TIME
+  void register_time_lookup(const std::string &id, time::RealTimeClock *rtc);
+  time::RealTimeClock *lookup_time(const char *id) const;
+#endif
+#ifdef USE_FONT
+  void register_font_lookup(const std::string &id, font::Font *font);
+  font::Font *lookup_font(const char *id) const;
+#endif
 #endif
 
   using PlaylistCallback = std::function<void()>;
@@ -923,6 +946,31 @@ class PixelLayout : public Component {
 #endif
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
   SdStorageManager sd_storage_;
+  bool progmem_playlist_saved_{false};
+  std::vector<Widget *> progmem_screens_{};
+  std::vector<uint32_t> progmem_duration_ms_{};
+  std::vector<ScreenTransition> progmem_transition_{};
+  std::vector<uint32_t> progmem_transition_ms_{};
+  std::vector<std::string> progmem_screen_ids_{};
+  std::vector<uint8_t> progmem_enabled_flags_{};
+  std::vector<uint8_t> progmem_seen_{};
+  std::vector<std::unique_ptr<Widget>> sd_owned_widgets_{};
+  std::vector<SdOwnedImage> sd_owned_images_{};
+#ifdef USE_SENSOR
+  std::vector<std::pair<std::string, sensor::Sensor *>> sensor_lookup_{};
+#endif
+#ifdef USE_TEXT_SENSOR
+  std::vector<std::pair<std::string, text_sensor::TextSensor *>> text_sensor_lookup_{};
+#endif
+#ifdef USE_TIME
+  std::vector<std::pair<std::string, time::RealTimeClock *>> time_lookup_{};
+#endif
+#ifdef USE_FONT
+  std::vector<std::pair<std::string, font::Font *>> font_lookup_{};
+#endif
+  void backup_progmem_playlist_();
+  void clear_active_playlist_();
+  std::string sd_root_path_{};
 #endif
 };
 

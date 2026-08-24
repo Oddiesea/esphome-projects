@@ -34,7 +34,7 @@ CONFIG_SCHEMA = cv.typed_schema(
             {
                 cv.GenerateID(CONF_HUB75_DMA_ID): cv.use_id(Hub75DmaDisplay),
                 cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-                cv.Optional(CONF_INITIAL_VALUE, default=1.0): cv.float_range(min=0.1, max=5.0),
+                cv.Optional(CONF_INITIAL_VALUE, default=1.0): cv.float_range(min=0.05, max=20.0),
             }
         )
         .extend(cv.COMPONENT_SCHEMA),
@@ -47,7 +47,7 @@ CONFIG_SCHEMA = cv.typed_schema(
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_HUB75_DMA_ID])
     if config[CONF_TYPE] == "compensation":
-        var = await number.new_number(config, min_value=0.1, max_value=5.0, step=0.1)
+        var = await number.new_number(config, min_value=0.05, max_value=20.0, step=0.05)
         await cg.register_component(var, config)
         cg.add(var.set_parent(parent))
         cg.add(parent.set_adaptive_compensation(var))

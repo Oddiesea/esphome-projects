@@ -271,6 +271,29 @@ void PixelLayoutNightHourNumber::control(float value) {
 }
 #endif
 
+#ifdef USE_TEXT_SENSOR
+void PixelLayoutScreenLabelTextSensor::setup() {
+  if (this->parent_ != nullptr) {
+    this->parent_->add_on_playlist_change([this]() { this->sync_(); });
+  }
+  this->sync_();
+}
+
+void PixelLayoutScreenLabelTextSensor::dump_config() {
+  LOG_TEXT_SENSOR("", "Pixel Layout Screen Label", this);
+}
+
+void PixelLayoutScreenLabelTextSensor::sync_() {
+  if (this->parent_ == nullptr)
+    return;
+  std::string label;
+  if (this->index_ < this->parent_->screen_count()) {
+    label = this->parent_->screen_id(this->index_);
+  }
+  this->publish_state(label);
+}
+#endif
+
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
 #ifdef USE_SWITCH
 void PixelLayoutUseSdLayoutSwitch::setup() {

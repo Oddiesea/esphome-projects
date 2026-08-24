@@ -7,9 +7,11 @@ Wire format (.plbundle):
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
+import re
 import struct
 import zipfile
 from datetime import datetime, timezone
@@ -19,12 +21,144 @@ import yaml
 
 PLB_MAGIC = b"PLB1"
 PLB_VERSION = 1
+PLI_MAGIC = b"PLI1"
 MANIFEST_NAME = "manifest.json"
 PLAYLIST_NAME = "playlist.yml"
+PLAYLIST_JSON_NAME = "playlist.json"
+
+from pathlib import Path
+
+_MATERIAL_SYMBOLS = json.loads(Path(__file__).with_name("material_symbols.json").read_text()).get("icons", {})
+
+_ICONS = {
+    "thermometer": "device_thermostat",
+    "partlycloudy": "partly_cloudy_day",
+    "clear-night": "clear_night",
+}
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _ms(value: Any) -> int:
+    if value is None:
+        return 0
+    if hasattr(value, "total_milliseconds"):
+        return int(value.total_milliseconds)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s.endswith("ms"):
+            return int(float(s[:-2]))
+        if s.endswith("s"):
+            return int(float(s[:-1]) * 1000)
+        return int(float(s))
+    return 0
+
+
+def _resolve_icon(value: str) -> str:
+    key = value.strip()
+    if key.lower().startswith("mdi:"):
+        key = key[4:]
+    key = key.replace("-", "_").replace(" ", "_")
+    alias = _ICONS.get(key) or _ICONS.get(value)
+    if alias:
+        key = alias
+    cp = _MATERIAL_SYMBOLS.get(key)
+    if cp is not None:
+        return chr(int(cp))
+    return value
+
+
+def _parse_color(value: Any) -> list[int] | str:
+    if isinstance(value, list) and len(value) >= 3:
+        return [int(value[0]), int(value[1]), int(value[2])]
+    if not isinstance(value, str):
+        return "white"
+    s = value.strip()
+    if s.lower() in ("white", "black"):
+        return s.lower()
+    if s.startswith("#") and len(s) >= 7:
+        return [int(s[1:3], 16), int(s[3:5], 16), int(s[5:7], 16)]
+    return s
+
+
+def _pack_custom_pixels(value: Any) -> list[int] | None:
+    if isinstance(value, str) and value.strip().startswith("p4:"):
+        raw = base64.b64decode(value.strip()[3:])
+        if len(raw) < 3:
+            return None
+        width, height = raw[1], raw[2]
+        return [width, height, *raw[3:]]
+    return None
+
+
+def _normalize_widget(node: Any) -> Any:
+    if not isinstance(node, dict):
+        return node
+    out = dict(node)
+    t = out.get("type")
+    if t == "icon" and isinstance(out.get("icon"), str):
+        out["icon"] = _resolve_icon(out["icon"])
+    for key in ("icon", "icon_end"):
+        if isinstance(out.get(key), str):
+            out[key] = _resolve_icon(out[key])
+    if "color" in out:
+        out["color"] = _parse_color(out["color"])
+    if "fill" in out:
+        out["fill"] = _parse_color(out["fill"])
+    if "palette" in out and isinstance(out["palette"], list):
+        out["palette"] = [_parse_color(c) for c in out["palette"]]
+    if t == "custom":
+        packed = _pack_custom_pixels(out.get("pixels"))
+        if packed is not None:
+            out["pixels_packed"] = packed
+            out.pop("pixels", None)
+    if "duration" in out:
+        out["duration_ms"] = _ms(out.pop("duration"))
+    if "transition_duration" in out:
+        out["transition_ms"] = _ms(out.pop("transition_duration"))
+    for key in ("children",):
+        if isinstance(out.get(key), list):
+            out[key] = [_normalize_widget(ch) for ch in out[key]]
+    if isinstance(out.get("child"), dict):
+        out["child"] = _normalize_widget(out["child"])
+    return out
+
+
+def normalize_playlist_json(playlist: dict[str, Any]) -> dict[str, Any]:
+    """Device-facing playlist.json (ms numbers, resolved icons, packed pixels)."""
+    out: dict[str, Any] = {}
+    for key in ("display_id", "background", "font", "icon_font", "loop", "random"):
+        if key in playlist:
+            out[key] = playlist[key]
+    if "background" in out and not isinstance(out["background"], list):
+        out["background"] = _parse_color(out["background"])
+    if "rotate" in playlist:
+        out["rotate_ms"] = _ms(playlist["rotate"])
+    if playlist.get("transition"):
+        out["transition"] = str(playlist["transition"])
+    if playlist.get("transition_duration"):
+        out["transition_ms"] = _ms(playlist["transition_duration"])
+    screens = []
+    for i, screen in enumerate(playlist.get("screens") or []):
+        if not isinstance(screen, dict):
+            continue
+        row: dict[str, Any] = {
+            "id": screen.get("id") or f"screen_{i + 1}",
+            "duration_ms": _ms(screen.get("duration") or playlist.get("rotate") or "8s"),
+        }
+        if screen.get("transition"):
+            row["transition"] = str(screen["transition"])
+        if screen.get("transition_duration"):
+            row["transition_ms"] = _ms(screen["transition_duration"])
+        if isinstance(screen.get("root"), dict):
+            row["root"] = _normalize_widget(screen["root"])
+        screens.append(row)
+    out["screens"] = screens
+    return out
 
 
 def playlist_from_pixel_layout(doc: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +200,17 @@ def collect_pack_ids(playlist: dict[str, Any]) -> list[str]:
     return sorted(ids)
 
 
+def _rgb565_bin(pack_doc: dict[str, Any]) -> bytes:
+    try:
+        from .sprite_pack import _encode_rgb565, parse_sprite_pack
+    except ImportError:
+        from sprite_pack import _encode_rgb565, parse_sprite_pack
+    pack = parse_sprite_pack(pack_doc, "pack")
+    data, width, height = _encode_rgb565(pack["png"], pack["chroma_key"])
+    chroma = 1 if pack["chroma_key"] else 0
+    return PLI_MAGIC + struct.pack("<HHB", width, height, chroma) + bytes(data)
+
+
 def build_sd_tree(
     layout_doc: dict[str, Any],
     *,
@@ -77,22 +222,30 @@ def build_sd_tree(
     """Return path → file bytes for an SD card layout folder."""
     playlist = playlist_from_pixel_layout(layout_doc)
     playlist_yaml = yaml.safe_dump(playlist, sort_keys=False, width=88).encode("utf-8")
+    playlist_json_obj = normalize_playlist_json(playlist)
+    playlist_json = (json.dumps(playlist_json_obj, separators=(",", ":")) + "\n").encode("utf-8")
     manifest = {
         "schema": 1,
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "panel_width": int(panel_width),
         "panel_height": int(panel_height),
         "playlist_sha256": _sha256(playlist_yaml),
+        "playlist_json_sha256": _sha256(playlist_json),
         "pack_format": "sprite_v1_yaml",
     }
     tree: dict[str, bytes] = {
         MANIFEST_NAME: json.dumps(manifest, indent=2).encode("utf-8") + b"\n",
         PLAYLIST_NAME: playlist_yaml,
+        PLAYLIST_JSON_NAME: playlist_json,
     }
     packs = packs or {}
     for pack_id, pack_doc in packs.items():
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(pack_id))
         tree[f"packs/{safe}.yml"] = yaml.safe_dump(pack_doc, sort_keys=False, width=88).encode("utf-8")
+        try:
+            tree[f"packs/{safe}.rgb565"] = _rgb565_bin(pack_doc)
+        except Exception:
+            pass
     icons = icons or {}
     for theme_id, icon_doc in icons.items():
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(theme_id))

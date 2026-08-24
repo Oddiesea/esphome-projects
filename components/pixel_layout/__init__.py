@@ -37,6 +37,7 @@ DEPENDENCIES = ["display"]
 AUTO_LOAD = ["image", "select", "switch", "number", "button"]
 
 CONF_PIXEL_LAYOUT_ID = "pixel_layout_id"
+CONF_SCREEN_INDEX = "screen_index"
 CONF_ROOT = "root"
 CONF_SCREENS = "screens"
 CONF_ROTATE = "rotate"
@@ -315,6 +316,9 @@ PixelLayoutReloadSdLayoutButton = pixel_layout_ns.class_(
 )
 PixelLayoutSdStatusTextSensor = pixel_layout_ns.class_(
     "PixelLayoutSdStatusTextSensor", text_sensor.TextSensor, cg.Component
+)
+PixelLayoutScreenLabelTextSensor = pixel_layout_ns.class_(
+    "PixelLayoutScreenLabelTextSensor", text_sensor.TextSensor, cg.Component
 )
 PixelLayoutRotateIntervalNumber = pixel_layout_ns.class_(
     "PixelLayoutRotateIntervalNumber", number.Number, cg.Component
@@ -1276,12 +1280,11 @@ async def build_widget(config: ConfigType, defaults: dict):
             cg.add(var.set_wind_bearing_sensor(sens))
         # Icons before set_condition so the first lookup can resolve custom bitmaps.
         await _codegen_weather_icons(var, config)
-        if CONF_CONDITION in config:
-            cg.add(var.set_condition(config[CONF_CONDITION]))
-        else:
-            # Keep condition_key non-empty before the HA sensor syncs so gameman
-            # (or default) art shows instead of the Material font fallback.
-            cg.add(var.set_condition("cloudy"))
+        if CONF_CONDITION_ID not in config:
+            if CONF_CONDITION in config:
+                cg.add(var.set_condition(config[CONF_CONDITION]))
+            else:
+                cg.add(var.set_condition("cloudy"))
     elif t == "sprite":
         if CONF_IMAGE_ID in config:
             img = await cg.get_variable(config[CONF_IMAGE_ID])
@@ -1310,6 +1313,29 @@ async def build_widget(config: ConfigType, defaults: dict):
             cg.add_global(RawStatement(f"static const uint8_t {name}[] PROGMEM = {{{body}}};"))
             cg.add(var.set_pixels(RawExpression(name), width, height))
     return var
+
+
+async def _codegen_sd_entity_registry(var, config: ConfigType) -> None:
+    """Register device entity ids for SD runtime playlist lookup."""
+    if CONF_SD_STORAGE not in config:
+        return
+
+    async def reg_items(platform: str, method_name: str) -> None:
+        seen: set[str] = set()
+        for entry in CORE.config.get(platform) or []:
+            if not isinstance(entry, dict):
+                continue
+            eid = entry.get(CONF_ID)
+            if not eid or eid in seen:
+                continue
+            seen.add(eid)
+            obj = await cg.get_variable(eid)
+            cg.add(getattr(var, method_name)(str(eid), obj))
+
+    await reg_items("sensor", "register_sensor_lookup")
+    await reg_items("text_sensor", "register_text_sensor_lookup")
+    await reg_items("time", "register_time_lookup")
+    await reg_items("font", "register_font_lookup")
 
 
 async def to_code(config: ConfigType):
@@ -1357,6 +1383,7 @@ async def to_code(config: ConfigType):
     if CONF_SD_STORAGE in config:
         sd = config[CONF_SD_STORAGE]
         cg.add_define("USE_PIXEL_LAYOUT_SD_STORAGE")
+        cg.add_define("USE_IMAGE")
         cg.add(
             var.configure_sd_storage(
                 sd[CONF_MOUNT_PATH],
@@ -1367,6 +1394,7 @@ async def to_code(config: ConfigType):
                 sd[CONF_UPLOAD_PORT],
             )
         )
+        await _codegen_sd_entity_registry(var, config)
     screens = config.get(CONF_SCREENS)
     if not screens:
         screens = [{CONF_ROOT: config[CONF_ROOT], CONF_ID: "screen_1"}]
