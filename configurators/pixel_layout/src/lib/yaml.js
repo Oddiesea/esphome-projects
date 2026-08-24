@@ -29,16 +29,34 @@ export function allWidgets(state) {
 }
 
 /** Root SNTP / time component id shared by clock and date widgets. */
+export const SNTP_TIME_ID = "sntp_time";
+
+export function isHaTimeId(id) {
+  const s = String(id || "").trim();
+  return /^ha[_-]?/i.test(s) || /home.?assistant/i.test(s);
+}
+
+/** ESPHome allows one SNTP block — map legacy ids (clock_time, etc.) to sntp_time. */
+export function normalizeTimeId(id, fallback = SNTP_TIME_ID) {
+  const s = String(id || "").trim();
+  if (!s) return fallback;
+  if (isHaTimeId(s)) return s;
+  return SNTP_TIME_ID;
+}
+
 export function effectiveTimeId(state) {
-  return state?.time_id || ROOT_DEFAULTS.time_id;
+  return normalizeTimeId(state?.time_id || ROOT_DEFAULTS.time_id);
 }
 
 /** Pick up time_id from imported widgets when the root field is unset. */
 export function syncRootTimeId(state) {
-  if (state.time_id) return;
+  if (state.time_id) {
+    state.time_id = normalizeTimeId(state.time_id);
+    return;
+  }
   for (const w of allWidgets(state)) {
     if ((w.type === "clock" || w.type === "date") && w.time_id) {
-      state.time_id = w.time_id;
+      state.time_id = normalizeTimeId(w.time_id);
       return;
     }
   }
@@ -94,8 +112,11 @@ export function widgetToYaml(w, layoutState) {
   }
 
   if (w.type === "clock") {
-    o.time_id = w.time_id || timeId;
-    if (w.fallback_time_id) o.fallback_time_id = w.fallback_time_id;
+    o.time_id = normalizeTimeId(w.time_id || timeId);
+    if (w.fallback_time_id) {
+      const fb = normalizeTimeId(w.fallback_time_id);
+      if (fb !== o.time_id) o.fallback_time_id = fb;
+    }
     o.face = w.face || "digital";
     if (w.secondary_color) o.secondary_color = w.secondary_color;
     if (w.ghost && o.face === "digital" && (w.theme === "seven_segment" || w.theme === "rounded" || w.theme === "perspective" || !w.theme)) o.ghost = true;
@@ -175,7 +196,7 @@ export function widgetToYaml(w, layoutState) {
   }
 
   if (w.type === "date") {
-    o.time_id = w.time_id || timeId;
+    o.time_id = normalizeTimeId(w.time_id || timeId);
     o.style = w.style || "text";
     if (o.style !== "calendar") o.format = w.format || "%a %d %b";
     if (w.uppercase) o.uppercase = true;
@@ -339,16 +360,13 @@ export function fontImportsYaml(state) {
   return lines.join("\n");
 }
 
-/** Canonical SNTP id — ESPHome rejects multiple SNTP entries with different ids. */
-export const SNTP_TIME_ID = "sntp_time";
-
 /** ESPHome time: HA per id; one shared SNTP block for all other clock/date time sources. */
 export function timeImportsYaml(state) {
   const ids = new Set();
   for (const w of allWidgets(state)) {
     if (w.type !== "clock" && w.type !== "date") continue;
-    if (w.time_id) ids.add(String(w.time_id).trim());
-    if (w.fallback_time_id) ids.add(String(w.fallback_time_id).trim());
+    if (w.time_id) ids.add(normalizeTimeId(w.time_id));
+    if (w.fallback_time_id) ids.add(normalizeTimeId(w.fallback_time_id));
   }
   if (!ids.size) {
     const root = effectiveTimeId(state);
@@ -359,7 +377,7 @@ export function timeImportsYaml(state) {
   const haIds = [];
   let needsSntp = false;
   for (const id of [...ids].sort()) {
-    if (/^ha[_-]?/i.test(id) || /home.?assistant/i.test(id)) haIds.push(id);
+    if (isHaTimeId(id)) haIds.push(id);
     else needsSntp = true;
   }
   const lines = ["time:"];
@@ -409,7 +427,7 @@ export function layoutYamlOnly(state) {
     const clampH = (n, fb) => Math.max(0, Math.min(23, Number.isFinite(Number(n)) ? Number(n) : fb));
     const clampM = (n, fb) => Math.max(0, Math.min(59, Number.isFinite(Number(n)) ? Number(n) : fb));
     root.night_schedule = {
-      time_id: state.time_id || ROOT_DEFAULTS.time_id,
+      time_id: normalizeTimeId(state.time_id || ROOT_DEFAULTS.time_id),
       enabled: true,
       off_hour: clampH(state.night_off_hour, ROOT_DEFAULTS.night_off_hour),
       off_minute: clampM(state.night_off_minute, ROOT_DEFAULTS.night_off_minute),
