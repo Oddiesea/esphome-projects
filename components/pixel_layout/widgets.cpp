@@ -1155,6 +1155,8 @@ const char *weather_glyph(const char *condition) {
 }
 
 void weather_key(const char *condition, char *key, size_t key_size) {
+  if (key == nullptr || key_size == 0)
+    return;
   size_t j = 0;
   const char *in = condition == nullptr ? "" : condition;
   if (strncmp(in, "mdi:weather-", 12) == 0)
@@ -1170,6 +1172,17 @@ void weather_key(const char *condition, char *key, size_t key_size) {
     key[j++] = c;
   }
   key[j] = '\0';
+  // Match Python normalize_weather_key: empty → cloudy so custom themes resolve
+  // before the HA text sensor has synced (otherwise Material fallback wins).
+  if (j == 0 && key_size > 6) {
+    key[0] = 'c';
+    key[1] = 'l';
+    key[2] = 'o';
+    key[3] = 'u';
+    key[4] = 'd';
+    key[5] = 'y';
+    key[6] = '\0';
+  }
 }
 
 std::string weather_label(const char *condition) {
@@ -1391,31 +1404,47 @@ void DateWidget::draw(DrawContext &ctx, uint32_t now_ms) {
 }
 
 void WeatherWidget::apply_condition_(const char *condition) {
-  weather_key(condition, this->condition_key_, sizeof(this->condition_key_));
+  char key[sizeof(this->condition_key_)];
+  weather_key(condition, key, sizeof(key));
   const char *glyph = weather_glyph(condition);
   std::string label = weather_label(condition);
   // Look up by key at use-time — CustomIconEntry pointers dangle after vector growth.
-  if (this->glyph_ == glyph && this->label_ == label)
+  if (strcmp(this->condition_key_, key) == 0 && this->glyph_ == glyph && this->label_ == label)
     return;
+  memcpy(this->condition_key_, key, sizeof(this->condition_key_));
   this->glyph_ = glyph;
   this->label_ = label;
   this->mark_dirty();
+}
+
+void WeatherWidget::rebind_custom_icon_ptrs_() {
+  for (auto &entry : this->custom_icons_) {
+    entry.icon.pixels = entry.pixel_storage.empty() ? nullptr : entry.pixel_storage.data();
+    entry.icon.palette = entry.palette_storage.empty() ? nullptr : entry.palette_storage.data();
+    entry.icon.palette_count = entry.palette_storage.size();
+  }
 }
 
 void WeatherWidget::add_custom_icon(const std::string &key, const uint8_t *pixels, int width, int height, Color color,
                                     const Color *palette, size_t palette_count) {
   CustomIconEntry entry;
   entry.key = key;
-  entry.icon.pixels = pixels;
   entry.icon.width = width;
   entry.icon.height = height;
   entry.icon.color = color;
+  const size_t nbytes =
+      (static_cast<size_t>(std::max(0, width)) * static_cast<size_t>(std::max(0, height)) + 1) / 2;
+  if (pixels != nullptr && nbytes > 0)
+    entry.pixel_storage.assign(pixels, pixels + nbytes);
   if (palette != nullptr && palette_count > 0) {
-    entry.palette_storage.assign(palette, palette + palette_count);
-    entry.icon.palette = entry.palette_storage.data();
-    entry.icon.palette_count = entry.palette_storage.size();
+    entry.palette_storage.reserve(palette_count);
+    for (size_t i = 0; i < palette_count; i++) {
+      const Color &c = palette[i];
+      entry.palette_storage.emplace_back(c.r, c.g, c.b, c.w);
+    }
   }
   this->custom_icons_.push_back(std::move(entry));
+  this->rebind_custom_icon_ptrs_();
 }
 
 static const char *weather_icon_alias(const char *key) {
@@ -1446,13 +1475,14 @@ static const char *weather_icon_alias(const char *key) {
 }
 
 const WeatherCustomIcon *WeatherWidget::find_custom_icon_(const char *key) const {
-  if (key == nullptr || key[0] == '\0' || this->custom_icons_.empty())
+  if (this->custom_icons_.empty())
     return nullptr;
+  const char *lookup = (key == nullptr || key[0] == '\0') ? "cloudy" : key;
   for (const auto &entry : this->custom_icons_) {
-    if (entry.key == key)
+    if (entry.key == lookup)
       return &entry.icon;
   }
-  const char *alias = weather_icon_alias(key);
+  const char *alias = weather_icon_alias(lookup);
   if (alias != nullptr) {
     for (const auto &entry : this->custom_icons_) {
       if (entry.key == alias)

@@ -1170,6 +1170,10 @@ async def build_widget(config: ConfigType, defaults: dict):
         await _codegen_weather_icons(var, config)
         if CONF_CONDITION in config:
             cg.add(var.set_condition(config[CONF_CONDITION]))
+        else:
+            # Keep condition_key non-empty before the HA sensor syncs so gameman
+            # (or default) art shows instead of the Material font fallback.
+            cg.add(var.set_condition("cloudy"))
     elif t == "sprite":
         if CONF_IMAGE_ID in config:
             img = await cg.get_variable(config[CONF_IMAGE_ID])

@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <vector>
@@ -123,6 +124,59 @@ TEST(Weather, WeatherKey) {
   EXPECT_STREQ(key, "rainy");
   weather_key("partly-cloudy-day", key, sizeof(key));
   EXPECT_STREQ(key, "partly-cloudy-day");
+  weather_key("", key, sizeof(key));
+  EXPECT_STREQ(key, "cloudy");
+  weather_key(nullptr, key, sizeof(key));
+  EXPECT_STREQ(key, "cloudy");
+}
+
+TEST(Weather, EmptyConditionUsesCustomCloudy) {
+  // 2x2: index 1 at (0,0) → widget/icon color
+  const uint8_t packed[] = {0x10, 0x00};
+  WeatherWidget w;
+  w.set_show_icon(true);
+  w.set_show_condition(false);
+  w.set_show_temp(false);
+  w.set_show_humidity(false);
+  w.set_show_wind(false);
+  w.add_custom_icon("cloudy", packed, 2, 2, Color(10, 20, 30), nullptr, 0);
+  w.add_custom_icon("sunny", packed, 2, 2, Color(255, 128, 0), nullptr, 0);
+  // No set_condition — bind path uses apply_condition_("").
+  w.set_condition("");
+  w.layout(0, 0, 8, 8);
+  std::vector<uint8_t> buf(8 * 8 * 3, 0);
+  DrawContext ctx;
+  ctx.init(buf.data(), 8, 8);
+  w.draw(ctx, 0);
+  EXPECT_EQ(buf[0], 10);
+  EXPECT_EQ(buf[1], 20);
+  EXPECT_EQ(buf[2], 30);
+}
+
+TEST(Weather, ManyPaletteIconsSurviveRealloc) {
+  const uint8_t packed[] = {0x12, 0x00};  // idx 1 then 2
+  WeatherWidget w;
+  w.set_show_icon(true);
+  w.set_show_condition(false);
+  const Color pal[] = {Color(0, 255, 0)};
+  for (int i = 0; i < 24; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "icon%d", i);
+    w.add_custom_icon(key, packed, 2, 2, Color(255, 0, 0), pal, 1);
+  }
+  w.add_custom_icon("cloudy", packed, 2, 2, Color(1, 2, 3), pal, 1);
+  w.set_condition("cloudy");
+  w.layout(0, 0, 8, 8);
+  std::vector<uint8_t> buf(8 * 8 * 3, 0);
+  DrawContext ctx;
+  ctx.init(buf.data(), 8, 8);
+  w.draw(ctx, 0);
+  EXPECT_EQ(buf[0], 1);
+  EXPECT_EQ(buf[1], 2);
+  EXPECT_EQ(buf[2], 3);
+  EXPECT_EQ(buf[3], 0);  // palette green at (1,0)
+  EXPECT_EQ(buf[4], 255);
+  EXPECT_EQ(buf[5], 0);
 }
 
 TEST(Weather, CustomIconDrawAndAlias) {

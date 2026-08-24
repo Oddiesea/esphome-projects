@@ -657,8 +657,10 @@ class WeatherWidget : public Widget {
   struct CustomIconEntry {
     std::string key;
     WeatherCustomIcon icon;
+    std::vector<uint8_t> pixel_storage;
     std::vector<Color> palette_storage;
   };
+  void rebind_custom_icon_ptrs_();
   std::vector<CustomIconEntry> custom_icons_;
   bool show_icon_{true};
   bool show_condition_{false};

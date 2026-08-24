@@ -629,27 +629,26 @@ void Widget::add_visible_text(text_sensor::TextSensor *sensor, const std::string
 }
 #endif
 
-static bool visible_cmp(uint8_t cmp, float value, float threshold) {
-  switch (cmp) {
-    case 1:
-      return value > threshold;
-    case 2:
-      return value >= threshold;
-    case 3:
-      return std::fabs(value - threshold) < 0.0001f;
-    case 4:
-      return std::fabs(value - threshold) >= 0.0001f;
-    case 5:
-      return value < threshold;
-    case 6:
-      return value <= threshold;
-    default:
-      return true;
-  }
-}
-
 bool VisibleClause::matches() const {
 #ifdef USE_SENSOR
+  auto visible_cmp = [](uint8_t cmp, float value, float threshold) -> bool {
+    switch (cmp) {
+      case 1:
+        return value > threshold;
+      case 2:
+        return value >= threshold;
+      case 3:
+        return std::fabs(value - threshold) < 0.0001f;
+      case 4:
+        return std::fabs(value - threshold) >= 0.0001f;
+      case 5:
+        return value < threshold;
+      case 6:
+        return value <= threshold;
+      default:
+        return true;
+    }
+  };
   if (this->sensor != nullptr) {
     bool match = false;
     if (this->sensor->has_state() && !std::isnan(this->sensor->state)) {

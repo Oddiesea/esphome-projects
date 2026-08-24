@@ -7,8 +7,15 @@
 #include "esphome/components/number/number.h"
 #include "esphome/components/switch/switch.h"
 
+// Vendor VirtualMatrixPanel headers trip -Wparentheses / -Wtype-limits /
+// -Wimplicit-fallthrough on stock ESP-IDF builds; silence only around the include.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wparentheses"
+#pragma GCC diagnostic ignored "-Wtype-limits"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
 #include "ESP32-VirtualMatrixPanel-I2S-DMA.h"
+#pragma GCC diagnostic pop
 
 #include <vector>
 
