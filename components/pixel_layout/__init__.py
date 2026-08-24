@@ -30,6 +30,7 @@ from esphome.core import CORE, HexInt
 from esphome.cpp_generator import RawExpression, RawStatement
 from esphome.types import ConfigType
 
+from .entity_ids import collect_registerable_entity_ids
 from .sprite_pack import validate_pack
 
 CODEOWNERS = ["@liamjones"]
@@ -1325,12 +1326,12 @@ async def _codegen_sd_entity_registry(var, config: ConfigType) -> None:
         for entry in CORE.config.get(platform) or []:
             if not isinstance(entry, dict):
                 continue
-            eid = entry.get(CONF_ID)
-            if not eid or eid in seen:
-                continue
-            seen.add(eid)
-            obj = await cg.get_variable(eid)
-            cg.add(getattr(var, method_name)(str(eid), obj))
+            for eid in collect_registerable_entity_ids(entry):
+                if eid in seen:
+                    continue
+                seen.add(eid)
+                obj = await cg.get_variable(eid)
+                cg.add(getattr(var, method_name)(str(eid), obj))
 
     await reg_items("sensor", "register_sensor_lookup")
     await reg_items("text_sensor", "register_text_sensor_lookup")
