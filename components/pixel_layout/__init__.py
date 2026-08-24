@@ -315,7 +315,9 @@ THEMES = {
     "ticks": ClockTheme.TICKS,
     "square": ClockTheme.SQUARE,
 }
-ANALOG_THEMES = {ClockTheme.RING, ClockTheme.MINIMAL, ClockTheme.TICKS, ClockTheme.SQUARE}
+ANALOG_THEMES = {"ring", "minimal", "ticks", "square"}
+validate_face = cv.enum(FACES, lower=True)
+validate_theme = cv.enum(THEMES, lower=True)
 CLOCK_SIZES = {
     "sm": ClockSize.SM,
     "small": ClockSize.SM,
@@ -654,13 +656,13 @@ def validate_widget(value):
 
 
 def _validate_clock(config):
-    face = config[CONF_FACE]
-    theme = config[CONF_THEME]
-    if face == ClockFace.ANALOG:
+    face = str(config[CONF_FACE])
+    theme = str(config[CONF_THEME])
+    if face == "analog":
         if theme not in ANALOG_THEMES:
-            config[CONF_THEME] = ClockTheme.RING
+            config[CONF_THEME] = validate_theme("ring")
     elif theme in ANALOG_THEMES:
-        config[CONF_THEME] = ClockTheme.SEVEN_SEGMENT
+        config[CONF_THEME] = validate_theme("seven_segment")
     return config
 
 
@@ -732,8 +734,8 @@ WIDGET_SCHEMAS["clock"] = cv.All(
         {
             **_base(ClockWidget),
             cv.Required(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
-            cv.Optional(CONF_FACE, default="digital"): cv.enum(FACES, lower=True),
-            cv.Optional(CONF_THEME, default="seven_segment"): cv.enum(THEMES, lower=True),
+            cv.Optional(CONF_FACE, default="digital"): validate_face,
+            cv.Optional(CONF_THEME, default="seven_segment"): validate_theme,
             cv.Optional(CONF_SIZE, default="md"): cv.enum(CLOCK_SIZES, lower=True),
             cv.Optional(CONF_COLON): cv.one_of(*COLON_MODES, lower=True),
             cv.Optional(CONF_BLINK_COLON, default=True): cv.boolean,
@@ -764,7 +766,7 @@ WIDGET_SCHEMAS["weather"] = cv.All(
             cv.Optional(CONF_CONDITION_ID): cv.use_id(text_sensor.TextSensor),
             cv.Optional(CONF_CONDITION): cv.one_of(*WEATHER_CONDITIONS, lower=True),
             cv.Optional(CONF_ICON_THEME): cv.string,
-            cv.Optional(CONF_ICONS): cv.schema(
+            cv.Optional(CONF_ICONS): cv.Schema(
                 {
                     cv.string: cv.Schema(
                         {

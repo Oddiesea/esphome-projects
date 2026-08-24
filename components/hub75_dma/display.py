@@ -94,6 +94,7 @@ CHAIN_TYPES = {
     "bottom_left_up_zz": PANEL_CHAIN_TYPE.CHAIN_BOTTOM_LEFT_UP_ZZ,
     "bottom_right_up_zz": PANEL_CHAIN_TYPE.CHAIN_BOTTOM_RIGHT_UP_ZZ,
 }
+validate_chain_type = cv.enum(CHAIN_TYPES, lower=True, space="_")
 
 ROTATIONS = {0: 0, 90: 1, 180: 2, 270: 3}
 
@@ -152,9 +153,10 @@ def _validate_panel_geometry(config: ConfigType) -> ConfigType:
     config[CONF_CHAIN_ROWS] = rows
     config[CONF_CHAIN_COLS] = cols
     config[CONF_CHAIN_LENGTH] = rows * cols
+    chain_type = config.get(CONF_CHAIN_TYPE, "none")
     needs_virtual = (
         rows > 1
-        or config.get(CONF_CHAIN_TYPE, CHAIN_TYPES["none"]) != CHAIN_TYPES["none"]
+        or chain_type != "none"
         or config.get(CONF_CHAIN_ROTATION, 0) != 0
     )
     if needs_virtual and (
@@ -169,7 +171,9 @@ def _validate_panel_geometry(config: ConfigType) -> ConfigType:
             f"chain_rows×chain_cols is {rows * cols}; at most 16 modules on the data path"
         )
     if CONF_CHAIN_TYPE not in config:
-        config[CONF_CHAIN_TYPE] = CHAIN_TYPES["top_right_down" if rows > 1 else "none"]
+        config[CONF_CHAIN_TYPE] = validate_chain_type(
+            "top_right_down" if rows > 1 else "none"
+        )
 
     total_w = config[CONF_PANEL_WIDTH] * cols
     total_h = config[CONF_PANEL_HEIGHT] * rows
@@ -207,7 +211,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_CHAIN_LENGTH): cv.int_range(min=1, max=16),
             cv.Optional(CONF_CHAIN_ROWS): cv.int_range(min=1, max=16),
             cv.Optional(CONF_CHAIN_COLS): cv.int_range(min=1, max=16),
-            cv.Optional(CONF_CHAIN_TYPE): cv.enum(CHAIN_TYPES, lower=True, space="_"),
+            cv.Optional(CONF_CHAIN_TYPE): validate_chain_type,
             cv.Optional(CONF_CHAIN_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),
             cv.Optional(CONF_BRIGHTNESS, default=128): cv.int_range(min=0, max=255),
             cv.Optional(CONF_UPDATE_INTERVAL, default="16ms"): cv.positive_time_period_milliseconds,

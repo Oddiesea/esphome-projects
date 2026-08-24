@@ -743,7 +743,7 @@ class CustomWidget : public Widget {
 
 class PixelLayout : public Component {
  public:
-  ~PixelLayout() override { delete[] this->buffer_; }
+  ~PixelLayout() { delete[] this->buffer_; }
   void setup() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
