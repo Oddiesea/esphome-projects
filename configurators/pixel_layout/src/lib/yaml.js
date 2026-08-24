@@ -371,7 +371,7 @@ export function timeImportsYaml(state) {
   return lines.join("\n");
 }
 
-function layoutYamlOnly(state) {
+export function layoutYamlOnly(state) {
   const root = {
     id: "matrix_layout",
     display_id: state.display_id || ROOT_DEFAULTS.display_id,
@@ -379,6 +379,14 @@ function layoutYamlOnly(state) {
   };
   if (state.font) root.font = state.font;
   if (state.icon_font) root.icon_font = state.icon_font;
+  if (sdStorageEnabled(state)) {
+    root.sd_storage = {
+      clk_pin: Number(state.sd_clk_pin ?? ROOT_DEFAULTS.sd_clk_pin),
+      cmd_pin: Number(state.sd_cmd_pin ?? ROOT_DEFAULTS.sd_cmd_pin),
+      d0_pin: Number(state.sd_d0_pin ?? ROOT_DEFAULTS.sd_d0_pin),
+      upload_port: Number(state.sd_upload_port ?? ROOT_DEFAULTS.sd_upload_port),
+    };
+  }
   const screens = state.screens?.length
     ? state.screens
     : [{ name: "Screen 1", duration_ms: state.rotate_ms || 8000, widgets: state.widgets || [] }];
@@ -390,6 +398,18 @@ function layoutYamlOnly(state) {
   }
   if (state.loop === false) root.loop = false;
   if (state.random) root.random = true;
+  if (nightScheduleEnabled(state)) {
+    const clampH = (n, fb) => Math.max(0, Math.min(23, Number.isFinite(Number(n)) ? Number(n) : fb));
+    const clampM = (n, fb) => Math.max(0, Math.min(59, Number.isFinite(Number(n)) ? Number(n) : fb));
+    root.night_schedule = {
+      time_id: state.time_id || ROOT_DEFAULTS.time_id,
+      enabled: true,
+      off_hour: clampH(state.night_off_hour, ROOT_DEFAULTS.night_off_hour),
+      off_minute: clampM(state.night_off_minute, ROOT_DEFAULTS.night_off_minute),
+      on_hour: clampH(state.night_on_hour, ROOT_DEFAULTS.night_on_hour),
+      on_minute: clampM(state.night_on_minute, ROOT_DEFAULTS.night_on_minute),
+    };
+  }
   root.screens = (() => {
     const used = new Set();
     return screens.map((s, i) => {
@@ -461,6 +481,14 @@ export function adaptiveBrightnessEnabled(state) {
   return Boolean(state?.adaptive_brightness);
 }
 
+export function nightScheduleEnabled(state) {
+  return Boolean(state?.night_schedule);
+}
+
+export function sdStorageEnabled(state) {
+  return Boolean(state?.sd_storage);
+}
+
 /** Full paste-ready device package: substitutions + time + fonts + HA + hub75 + pixel_layout. */
 export function toYaml(state, opts = {}) {
   const panelWidth = Math.max(1, Number(opts.panelWidth ?? state.panel_width) || 128);
@@ -468,6 +496,7 @@ export function toYaml(state, opts = {}) {
   const brightness = clampBri(state.brightness ?? ROOT_DEFAULTS.brightness);
   const ha = collectHaImports(state);
   const adaptive = adaptiveBrightnessEnabled(state);
+  const sd = sdStorageEnabled(state);
   const compensation = clampComp(state.brightness_compensation ?? ROOT_DEFAULTS.brightness_compensation);
 
   const substs = new Map([
@@ -487,12 +516,24 @@ export function toYaml(state, opts = {}) {
     adaptive
       ? "# Adaptive brightness: add your own i2c + lux sensor (e.g. veml7700) with id matching sensor_id below."
       : "",
+    sd
+      ? "# SD storage: copy pixel_layout.plbundle to the card or POST wirelessly from this configurator."
+      : "",
     "",
     substitutionsYaml(substs),
     timeImportsYaml(state),
     fontImportsYaml(state),
     imageImportsYaml(state),
-    formatHaSensorsYaml(ha.items),
+    formatHaSensorsYaml(ha.items, {
+      extraTextSensorLines: sd
+        ? [
+            "  - platform: pixel_layout",
+            "    type: sd_status",
+            "    pixel_layout_id: matrix_layout",
+            '    name: "SD layout status"',
+          ]
+        : [],
+    }),
     hub75DeviceYaml(state),
     layoutYamlOnly(state),
   ].filter(Boolean);
@@ -515,6 +556,8 @@ export function hub75DeviceYaml(state) {
   const id = state.display_id || ROOT_DEFAULTS.display_id;
   const board = state.hub75_board || ROOT_DEFAULTS.hub75_board;
   const adaptive = adaptiveBrightnessEnabled(state);
+  const night = nightScheduleEnabled(state);
+  const sd = sdStorageEnabled(state);
   const luxId =
     String(state.adaptive_lux_sensor_id || ROOT_DEFAULTS.adaptive_lux_sensor_id || "ambient_lux").trim() ||
     "ambient_lux";
@@ -569,6 +612,26 @@ export function hub75DeviceYaml(state) {
     `    pixel_layout_id: ${plId}`,
     '    name: "Transition duration"',
   );
+  if (night) {
+    lines.push(
+      "  - platform: pixel_layout",
+      "    type: off_hour",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Sleep starts hour"',
+      "  - platform: pixel_layout",
+      "    type: off_minute",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Sleep starts minute"',
+      "  - platform: pixel_layout",
+      "    type: on_hour",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Wake hour"',
+      "  - platform: pixel_layout",
+      "    type: on_minute",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Wake minute"',
+    );
+  }
   lines.push(
     "",
     "switch:",
@@ -603,6 +666,22 @@ export function hub75DeviceYaml(state) {
     `    pixel_layout_id: ${plId}`,
     '    name: "Override transition"',
   );
+  if (night) {
+    lines.push(
+      "  - platform: pixel_layout",
+      "    type: night_schedule",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Night schedule"',
+    );
+  }
+  if (sd) {
+    lines.push(
+      "  - platform: pixel_layout",
+      "    type: use_sd_layout",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Use SD layout"',
+    );
+  }
   screenIds.forEach((sid, i) => {
     lines.push(
       "  - platform: pixel_layout",
@@ -619,12 +698,6 @@ export function hub75DeviceYaml(state) {
     "    type: screen",
     `    pixel_layout_id: ${plId}`,
     '    name: "Screen"',
-    "    options:",
-  );
-  for (const sid of screenIds) {
-    lines.push(`      - ${sid}`);
-  }
-  lines.push(
     "  - platform: pixel_layout",
     "    type: transition",
     `    pixel_layout_id: ${plId}`,
@@ -639,8 +712,24 @@ export function hub75DeviceYaml(state) {
     "    type: next",
     `    pixel_layout_id: ${plId}`,
     '    name: "Next screen"',
-    "",
   );
+  if (night) {
+    lines.push(
+      "  - platform: pixel_layout",
+      "    type: sleep",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Sleep"',
+    );
+  }
+  if (sd) {
+    lines.push(
+      "  - platform: pixel_layout",
+      "    type: reload_sd_layout",
+      `    pixel_layout_id: ${plId}`,
+      '    name: "Reload SD layout"',
+    );
+  }
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -782,7 +871,9 @@ export function collectHaImports(state) {
   return { items, substitutions };
 }
 
-function formatHaSensorsYaml(items, extraSensorLines = []) {
+function formatHaSensorsYaml(items, opts = {}) {
+  const extraSensorLines = opts.extraSensorLines || [];
+  const extraTextSensorLines = opts.extraTextSensorLines || [];
   const sensors = items.filter((x) => x.platform === "sensor");
   const texts = items.filter((x) => x.platform === "text_sensor");
   const lines = [];
@@ -798,8 +889,9 @@ function formatHaSensorsYaml(items, extraSensorLines = []) {
     }
     lines.push("");
   }
-  if (texts.length) {
+  if (extraTextSensorLines.length || texts.length) {
     lines.push("text_sensor:");
+    if (extraTextSensorLines.length) lines.push(...extraTextSensorLines);
     for (const s of texts) {
       lines.push(`  - platform: homeassistant`);
       lines.push(`    id: ${s.id}`);

@@ -9,11 +9,13 @@ from esphome.const import (
 from . import (
     CONF_PIXEL_LAYOUT_ID,
     PixelLayout,
+    PixelLayoutNightScheduleSwitch,
     PixelLayoutPinSwitch,
     PixelLayoutRandomSwitch,
     PixelLayoutRotateOverrideSwitch,
     PixelLayoutScreenEnabledSwitch,
     PixelLayoutTransitionOverrideSwitch,
+    PixelLayoutUseSdLayoutSwitch,
 )
 
 DEPENDENCIES = ["pixel_layout"]
@@ -60,6 +62,20 @@ CONFIG_SCHEMA = cv.typed_schema(
                 cv.Required(CONF_SCREEN_INDEX): cv.int_range(min=0, max=31),
             }
         )
+        .extend(cv.COMPONENT_SCHEMA),
+        "night_schedule": switch.switch_schema(
+            PixelLayoutNightScheduleSwitch,
+            icon="mdi:weather-night",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+        )
+        .extend({cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout)})
+        .extend(cv.COMPONENT_SCHEMA),
+        "use_sd_layout": switch.switch_schema(
+            PixelLayoutUseSdLayoutSwitch,
+            icon="mdi:sd",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+        )
+        .extend({cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout)})
         .extend(cv.COMPONENT_SCHEMA),
     },
     default_type="pin",

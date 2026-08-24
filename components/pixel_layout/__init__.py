@@ -43,6 +43,19 @@ CONF_ROTATE = "rotate"
 CONF_TRANSITION = "transition"
 CONF_TRANSITION_DURATION = "transition_duration"
 CONF_BACKGROUND = "background"
+CONF_NIGHT_SCHEDULE = "night_schedule"
+CONF_SD_STORAGE = "sd_storage"
+CONF_MOUNT_PATH = "mount_path"
+CONF_ROOT_PATH = "root_path"
+CONF_CLK_PIN = "clk_pin"
+CONF_CMD_PIN = "cmd_pin"
+CONF_D0_PIN = "d0_pin"
+CONF_UPLOAD_PORT = "upload_port"
+CONF_ENABLED = "enabled"
+CONF_OFF_HOUR = "off_hour"
+CONF_OFF_MINUTE = "off_minute"
+CONF_ON_HOUR = "on_hour"
+CONF_ON_MINUTE = "on_minute"
 CONF_ICON_FONT = "icon_font"
 CONF_FALLBACK_TIME_ID = "fallback_time_id"
 CONF_CHILDREN = "children"
@@ -289,12 +302,28 @@ PixelLayoutTransitionOverrideSwitch = pixel_layout_ns.class_(
 PixelLayoutScreenEnabledSwitch = pixel_layout_ns.class_(
     "PixelLayoutScreenEnabledSwitch", switch.Switch, cg.Component
 )
+PixelLayoutNightScheduleSwitch = pixel_layout_ns.class_(
+    "PixelLayoutNightScheduleSwitch", switch.Switch, cg.Component
+)
 PixelLayoutNextButton = pixel_layout_ns.class_("PixelLayoutNextButton", button.Button, cg.Component)
+PixelLayoutSleepButton = pixel_layout_ns.class_("PixelLayoutSleepButton", button.Button, cg.Component)
+PixelLayoutUseSdLayoutSwitch = pixel_layout_ns.class_(
+    "PixelLayoutUseSdLayoutSwitch", switch.Switch, cg.Component
+)
+PixelLayoutReloadSdLayoutButton = pixel_layout_ns.class_(
+    "PixelLayoutReloadSdLayoutButton", button.Button, cg.Component
+)
+PixelLayoutSdStatusTextSensor = pixel_layout_ns.class_(
+    "PixelLayoutSdStatusTextSensor", text_sensor.TextSensor, cg.Component
+)
 PixelLayoutRotateIntervalNumber = pixel_layout_ns.class_(
     "PixelLayoutRotateIntervalNumber", number.Number, cg.Component
 )
 PixelLayoutTransitionDurationNumber = pixel_layout_ns.class_(
     "PixelLayoutTransitionDurationNumber", number.Number, cg.Component
+)
+PixelLayoutNightHourNumber = pixel_layout_ns.class_(
+    "PixelLayoutNightHourNumber", number.Number, cg.Component
 )
 Widget = pixel_layout_ns.class_("Widget")
 StackWidget = pixel_layout_ns.class_("StackWidget", Widget)
@@ -977,6 +1006,28 @@ def _ensure_unique_screen_ids(config):
     return config
 
 
+NIGHT_SCHEDULE_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
+        cv.Optional(CONF_ENABLED, default=True): cv.boolean,
+        cv.Optional(CONF_OFF_HOUR, default=23): cv.int_range(min=0, max=23),
+        cv.Optional(CONF_OFF_MINUTE, default=0): cv.int_range(min=0, max=59),
+        cv.Optional(CONF_ON_HOUR, default=7): cv.int_range(min=0, max=23),
+        cv.Optional(CONF_ON_MINUTE, default=0): cv.int_range(min=0, max=59),
+    }
+)
+
+SD_STORAGE_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_MOUNT_PATH, default="/sdcard"): cv.string,
+        cv.Optional(CONF_ROOT_PATH, default="/sdcard/pixel_layout"): cv.string,
+        cv.Optional(CONF_CLK_PIN, default=1): cv.int_,
+        cv.Optional(CONF_CMD_PIN, default=44): cv.int_,
+        cv.Optional(CONF_D0_PIN, default=17): cv.int_,
+        cv.Optional(CONF_UPLOAD_PORT, default=8080): cv.int_range(min=1, max=65535),
+    }
+)
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -992,6 +1043,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_FONT): cv.use_id(font.Font),
             cv.Optional(CONF_ICON_FONT): cv.use_id(font.Font),
             cv.Optional(CONF_BACKGROUND, default="black"): validate_color,
+            cv.Optional(CONF_NIGHT_SCHEDULE): NIGHT_SCHEDULE_SCHEMA,
+            cv.Optional(CONF_SD_STORAGE): SD_STORAGE_SCHEMA,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.has_at_least_one_key(CONF_ROOT, CONF_SCREENS),
@@ -1283,6 +1336,37 @@ async def to_code(config: ConfigType):
     cg.add(var.set_transition_ms(_ms(config[CONF_TRANSITION_DURATION])))
     cg.add(var.set_screen_loop(config[CONF_LOOP]))
     cg.add(var.set_screen_random(config["random"]))
+    if CONF_NIGHT_SCHEDULE in config:
+        night = config[CONF_NIGHT_SCHEDULE]
+        cg.add(var.set_night_schedule_configured(True))
+        rtc = await cg.get_variable(night[CONF_TIME_ID])
+        cg.add(var.set_night_schedule_time(rtc))
+        cg.add(var.set_night_schedule_enabled(night[CONF_ENABLED]))
+        cg.add(var.set_night_off_hour(night[CONF_OFF_HOUR]))
+        cg.add(var.set_night_off_minute(night[CONF_OFF_MINUTE]))
+        cg.add(var.set_night_on_hour(night[CONF_ON_HOUR]))
+        cg.add(var.set_night_on_minute(night[CONF_ON_MINUTE]))
+        # Power ON clears sleep + sets schedule override (hub75 Power stays the real off path).
+        cg.add_global(RawStatement('#include "esphome/components/hub75_dma/hub75_dma.h"'))
+        cg.add(
+            RawExpression(
+                f"((hub75_dma::Hub75DmaDisplay *)({disp}))->add_on_power_state_callback("
+                f"[pl={var}](bool on) {{ if (on) pl->on_power_on(); }})"
+            )
+        )
+    if CONF_SD_STORAGE in config:
+        sd = config[CONF_SD_STORAGE]
+        cg.add_define("USE_PIXEL_LAYOUT_SD_STORAGE")
+        cg.add(
+            var.configure_sd_storage(
+                sd[CONF_MOUNT_PATH],
+                sd[CONF_ROOT_PATH],
+                sd[CONF_CLK_PIN],
+                sd[CONF_CMD_PIN],
+                sd[CONF_D0_PIN],
+                sd[CONF_UPLOAD_PORT],
+            )
+        )
     screens = config.get(CONF_SCREENS)
     if not screens:
         screens = [{CONF_ROOT: config[CONF_ROOT], CONF_ID: "screen_1"}]
@@ -1299,7 +1383,11 @@ async def to_code(config: ConfigType):
         sid = screen.get(CONF_ID) or f"screen_{i + 1}"
         screen_ids.append(sid)
         cg.add(var.add_screen(root, duration, trans, trans_ms, sid))
-    CORE.data.setdefault("pixel_layout", {})[str(config[CONF_ID])] = {"screen_ids": screen_ids}
+    CORE.data.setdefault("pixel_layout", {})[str(config[CONF_ID])] = {
+        "screen_ids": screen_ids,
+        "night_schedule": CONF_NIGHT_SCHEDULE in config,
+        "sd_storage": CONF_SD_STORAGE in config,
+    }
 
 
 # Keep JSON available for tests / docs.

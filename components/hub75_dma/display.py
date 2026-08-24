@@ -1,6 +1,6 @@
 from esphome import automation, pins
 import esphome.codegen as cg
-from esphome.components import display
+from esphome.components import display, sensor
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_BOARD,
@@ -9,6 +9,7 @@ from esphome.const import (
     CONF_ID,
     CONF_LAMBDA,
     CONF_OE_PIN,
+    CONF_SENSOR_ID,
     CONF_UPDATE_INTERVAL,
 )
 from esphome.core import ID
@@ -51,6 +52,10 @@ CONF_I2SSPEED = "i2sspeed"
 CONF_LATCH_BLANKING = "latch_blanking"
 CONF_DOUBLE_BUFFER = "double_buffer"
 CONF_USE_PSRAM = "use_psram"
+CONF_ADAPTIVE_BRIGHTNESS = "adaptive_brightness"
+CONF_MIN_BRIGHTNESS = "min_brightness"
+CONF_MAX_BRIGHTNESS = "max_brightness"
+CONF_LUX_REFERENCE = "lux_reference"
 
 HUB75_I2S_CFG = cg.global_ns.namespace("HUB75_I2S_CFG")
 shift_driver = HUB75_I2S_CFG.enum("shift_driver")
@@ -236,6 +241,14 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_I2SSPEED): cv.enum(CLOCK_SPEEDS, upper=True, space="_"),
             cv.Optional(CONF_LATCH_BLANKING): cv.int_range(min=1, max=4),
             cv.Optional(CONF_CLOCK_PHASE): cv.boolean,
+            cv.Optional(CONF_ADAPTIVE_BRIGHTNESS): cv.Schema(
+                {
+                    cv.Required(CONF_SENSOR_ID): cv.use_id(sensor.Sensor),
+                    cv.Optional(CONF_MIN_BRIGHTNESS, default=8): cv.int_range(min=0, max=255),
+                    cv.Optional(CONF_MAX_BRIGHTNESS, default=255): cv.int_range(min=0, max=255),
+                    cv.Optional(CONF_LUX_REFERENCE, default=500): cv.float_range(min=1.0),
+                }
+            ),
         }
     ),
     _apply_board_defaults,
@@ -278,6 +291,18 @@ async def to_code(config: ConfigType) -> None:
         cg.add(var.set_latch_blanking(config[CONF_LATCH_BLANKING]))
     if CONF_CLOCK_PHASE in config:
         cg.add(var.set_clock_phase(config[CONF_CLOCK_PHASE]))
+
+    if CONF_ADAPTIVE_BRIGHTNESS in config:
+        adaptive = config[CONF_ADAPTIVE_BRIGHTNESS]
+        lux = await cg.get_variable(adaptive[CONF_SENSOR_ID])
+        cg.add(var.set_adaptive_lux_sensor(lux))
+        cg.add(
+            var.set_adaptive_range(
+                adaptive[CONF_MIN_BRIGHTNESS],
+                adaptive[CONF_MAX_BRIGHTNESS],
+                adaptive[CONF_LUX_REFERENCE],
+            )
+        )
 
     await display.register_display(var, config)
 

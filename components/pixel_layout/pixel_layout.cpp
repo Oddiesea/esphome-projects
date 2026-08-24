@@ -1161,6 +1161,7 @@ void PixelLayout::setup() {
     this->add_screen(this->root_, 0);
   this->ensure_enabled_vectors_();
   this->load_prefs_();
+  this->load_night_prefs_();
   for (Widget *screen : this->screens_) {
     screen->bind(this);
     screen->layout(0, 0, w, h);
@@ -1171,6 +1172,10 @@ void PixelLayout::setup() {
   if (!this->screen_seen_.empty() && this->screen_index_ < this->screen_seen_.size())
     this->screen_seen_[this->screen_index_] = 1;
   this->notify_playlist_();
+  this->evaluate_night_schedule();
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+  this->sd_storage_.setup();
+#endif
   this->set_timeout(0, [this]() { this->tick_(); });
 }
 
@@ -1411,6 +1416,175 @@ void PixelLayout::save_prefs_() {
   pref.save(&p);
 }
 
+struct NightPrefs {
+  uint8_t magic{0xA6};
+  uint8_t enabled{1};
+  uint8_t sleep_until_wake{0};
+  uint8_t user_override{0};
+  uint8_t off_hour{23};
+  uint8_t off_minute{0};
+  uint8_t on_hour{7};
+  uint8_t on_minute{0};
+};
+
+void PixelLayout::load_night_prefs_() {
+  if (!this->night_configured_ || global_preferences == nullptr)
+    return;
+  auto pref = global_preferences->make_preference<NightPrefs>(fnv1_hash("pixel_layout_night_v1"));
+  NightPrefs p{};
+  if (!pref.load(&p) || p.magic != 0xA6)
+    return;
+  this->night_enabled_ = p.enabled != 0;
+  this->sleep_until_wake_ = p.sleep_until_wake != 0;
+  this->user_override_ = p.user_override != 0;
+  if (p.off_hour < 24)
+    this->night_off_hour_ = p.off_hour;
+  if (p.off_minute < 60)
+    this->night_off_minute_ = p.off_minute;
+  if (p.on_hour < 24)
+    this->night_on_hour_ = p.on_hour;
+  if (p.on_minute < 60)
+    this->night_on_minute_ = p.on_minute;
+}
+
+void PixelLayout::save_night_prefs_() {
+  if (!this->night_configured_ || !this->prefs_loaded_ || global_preferences == nullptr)
+    return;
+  NightPrefs p{};
+  p.magic = 0xA6;
+  p.enabled = this->night_enabled_ ? 1 : 0;
+  p.sleep_until_wake = this->sleep_until_wake_ ? 1 : 0;
+  p.user_override = this->user_override_ ? 1 : 0;
+  p.off_hour = this->night_off_hour_;
+  p.off_minute = this->night_off_minute_;
+  p.on_hour = this->night_on_hour_;
+  p.on_minute = this->night_on_minute_;
+  auto pref = global_preferences->make_preference<NightPrefs>(fnv1_hash("pixel_layout_night_v1"));
+  pref.save(&p);
+}
+
+void PixelLayout::set_night_schedule_enabled(bool on) {
+  this->night_enabled_ = on;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_night_off_hour(uint8_t hour) {
+  this->night_off_hour_ = hour > 23 ? 23 : hour;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_night_off_minute(uint8_t minute) {
+  this->night_off_minute_ = minute > 59 ? 59 : minute;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_night_on_hour(uint8_t hour) {
+  this->night_on_hour_ = hour > 23 ? 23 : hour;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_night_on_minute(uint8_t minute) {
+  this->night_on_minute_ = minute > 59 ? 59 : minute;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+void PixelLayout::sleep_until_wake() {
+  if (!this->night_configured_)
+    return;
+  this->sleep_until_wake_ = true;
+  this->user_override_ = false;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+void PixelLayout::on_power_on() {
+  if (!this->night_configured_)
+    return;
+  this->sleep_until_wake_ = false;
+  this->user_override_ = true;
+  this->save_night_prefs_();
+  this->evaluate_night_schedule();
+  this->notify_playlist_();
+}
+
+int PixelLayout::night_minutes_now_() const {
+#ifdef USE_TIME
+  if (this->night_time_ == nullptr)
+    return -1;
+  auto now = this->night_time_->now();
+  if (!now.is_valid())
+    return -1;
+  return static_cast<int>(now.hour) * 60 + static_cast<int>(now.minute);
+#else
+  return -1;
+#endif
+}
+
+bool PixelLayout::in_night_window_() const {
+  const int now = this->night_minutes_now_();
+  if (now < 0)
+    return false;
+  const int off = static_cast<int>(this->night_off_hour_) * 60 + static_cast<int>(this->night_off_minute_);
+  const int on = static_cast<int>(this->night_on_hour_) * 60 + static_cast<int>(this->night_on_minute_);
+  if (off == on)
+    return false;
+  if (off < on)
+    return now >= off && now < on;
+  return now >= off || now < on;
+}
+
+bool PixelLayout::should_blank_() const {
+  if (!this->night_configured_)
+    return false;
+  if (this->sleep_until_wake_)
+    return true;
+  if (!this->night_enabled_)
+    return false;
+  if (this->user_override_)
+    return false;
+  return this->in_night_window_();
+}
+
+void PixelLayout::evaluate_night_schedule() {
+  if (!this->night_configured_) {
+    if (this->blanked_) {
+      this->blanked_ = false;
+      this->request_redraw();
+    }
+    return;
+  }
+  const int now_m = this->night_minutes_now_();
+  if (now_m >= 0) {
+    const bool in_win = this->in_night_window_();
+    if (this->was_in_night_window_ && !in_win) {
+      this->sleep_until_wake_ = false;
+      this->user_override_ = false;
+      this->save_night_prefs_();
+    } else if (!this->was_in_night_window_ && in_win) {
+      this->user_override_ = false;
+      this->save_night_prefs_();
+    }
+    this->was_in_night_window_ = in_win;
+  }
+  const bool blank = this->should_blank_();
+  if (blank != this->blanked_) {
+    this->blanked_ = blank;
+    this->request_redraw();
+    this->notify_playlist_();
+  }
+}
+
 ScreenTransition PixelLayout::transition_for_(size_t index) const {
   if (this->transition_override_)
     return this->transition_;
@@ -1506,6 +1680,8 @@ size_t PixelLayout::choose_next_screen_() {
 }
 
 void PixelLayout::advance_screens_(uint32_t now_ms) {
+  if (this->blanked_)
+    return;
   if (this->screens_.size() < 2)
     return;
   if (this->transitioning_) {
@@ -1638,15 +1814,18 @@ void PixelLayout::tick_() {
   if (this->is_failed() || this->display_ == nullptr)
     return;
   const uint32_t now = millis();
+  this->evaluate_night_schedule();
   this->advance_screens_(now);
   bool changed = this->dirty_;
-  Widget *cur = this->active_root_();
-  if (cur != nullptr)
-    changed = cur->prepare(now) || changed;
-  if (this->transitioning_ && !this->screens_.empty()) {
-    Widget *nxt = this->screens_[this->next_screen_()];
-    if (nxt != nullptr)
-      changed = nxt->prepare(now) || changed;
+  if (!this->blanked_) {
+    Widget *cur = this->active_root_();
+    if (cur != nullptr)
+      changed = cur->prepare(now) || changed;
+    if (this->transitioning_ && !this->screens_.empty()) {
+      Widget *nxt = this->screens_[this->next_screen_()];
+      if (nxt != nullptr)
+        changed = nxt->prepare(now) || changed;
+    }
   }
   if (changed) {
     this->dirty_ = true;
@@ -1722,13 +1901,16 @@ void PixelLayout::host_set_play(size_t from, size_t to, bool transitioning, uint
 
 void PixelLayout::host_paint() {
   const uint32_t now = millis();
-  Widget *cur = this->active_root_();
-  if (cur != nullptr)
-    cur->prepare(now);
-  if (this->transitioning_ && !this->screens_.empty()) {
-    Widget *nxt = this->screens_[this->next_screen_()];
-    if (nxt != nullptr)
-      nxt->prepare(now);
+  this->evaluate_night_schedule();
+  if (!this->blanked_) {
+    Widget *cur = this->active_root_();
+    if (cur != nullptr)
+      cur->prepare(now);
+    if (this->transitioning_ && !this->screens_.empty()) {
+      Widget *nxt = this->screens_[this->next_screen_()];
+      if (nxt != nullptr)
+        nxt->prepare(now);
+    }
   }
   this->compose_(now);
 }
@@ -1737,6 +1919,8 @@ void PixelLayout::compose_(uint32_t now) {
   this->ctx_.clear(this->background_);
   this->ctx_.set_alpha_scale(255);
   this->ctx_.set_origin(0, 0);
+  if (this->blanked_)
+    return;
   if (this->transitioning_ && this->screens_.size() > 1) {
     float t = static_cast<float>(now - this->trans_started_ms_) /
               static_cast<float>(this->trans_play_ms_ == 0 ? 1 : this->trans_play_ms_);
@@ -1855,6 +2039,18 @@ void PixelLayout::render_(display::Display &it) {
   this->compose_(millis());
   this->ctx_.blit(it);
 }
+
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+void PixelLayout::configure_sd_storage(const std::string &mount_path, const std::string &root_path, int clk_pin,
+                                       int cmd_pin, int d0_pin, uint16_t upload_port) {
+  this->sd_storage_.configure(mount_path, root_path, clk_pin, cmd_pin, d0_pin, upload_port);
+}
+
+void PixelLayout::reload_from_sd() {
+  std::string err;
+  this->sd_storage_.reload_layout(&err);
+}
+#endif
 
 }  // namespace pixel_layout
 }  // namespace esphome

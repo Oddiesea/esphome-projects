@@ -10,6 +10,10 @@
 #include "esphome/core/component.h"
 #include "esphome/components/display/display.h"
 
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+#include "esphome/components/pixel_layout/sd_storage.h"
+#endif
+
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"
 #endif
@@ -788,6 +792,37 @@ class PixelLayout : public Component {
   ScreenTransition get_transition() const { return this->transition_; }
   uint32_t get_transition_ms() const { return this->transition_ms_; }
 
+  /** Optional nighttime blank schedule (compositor blank; Power stays on). */
+  void set_night_schedule_configured(bool on) { this->night_configured_ = on; }
+  bool night_schedule_configured() const { return this->night_configured_; }
+#ifdef USE_TIME
+  void set_night_schedule_time(time::RealTimeClock *rtc) { this->night_time_ = rtc; }
+#endif
+  void set_night_schedule_enabled(bool on);
+  bool get_night_schedule_enabled() const { return this->night_enabled_; }
+  void set_night_off_hour(uint8_t hour);
+  void set_night_off_minute(uint8_t minute);
+  void set_night_on_hour(uint8_t hour);
+  void set_night_on_minute(uint8_t minute);
+  uint8_t get_night_off_hour() const { return this->night_off_hour_; }
+  uint8_t get_night_off_minute() const { return this->night_off_minute_; }
+  uint8_t get_night_on_hour() const { return this->night_on_hour_; }
+  uint8_t get_night_on_minute() const { return this->night_on_minute_; }
+  /** Blank until next wake time. */
+  void sleep_until_wake();
+  /** Power ON override: clear sleep, show until next off edge. */
+  void on_power_on();
+  bool is_blanked() const { return this->blanked_; }
+  /** Recompute blank state (host tests / after clock set). */
+  void evaluate_night_schedule();
+
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+  void configure_sd_storage(const std::string &mount_path, const std::string &root_path, int clk_pin, int cmd_pin,
+                            int d0_pin, uint16_t upload_port);
+  void reload_from_sd();
+  SdStorageManager &sd_storage() { return this->sd_storage_; }
+#endif
+
   using PlaylistCallback = std::function<void()>;
   void add_on_playlist_change(PlaylistCallback cb) { this->playlist_cbs_.push_back(std::move(cb)); }
 
@@ -827,7 +862,12 @@ class PixelLayout : public Component {
   void notify_playlist_();
   void load_prefs_();
   void save_prefs_();
+  void load_night_prefs_();
+  void save_night_prefs_();
   void ensure_enabled_vectors_();
+  bool in_night_window_() const;
+  bool should_blank_() const;
+  int night_minutes_now_() const;
 
   display::Display *display_{nullptr};
   Widget *root_{nullptr};
@@ -850,6 +890,19 @@ class PixelLayout : public Component {
   bool pinned_{false};
   bool rotate_override_{false};
   bool transition_override_{false};
+  bool night_configured_{false};
+  bool night_enabled_{true};
+  bool sleep_until_wake_{false};
+  bool user_override_{false};
+  bool blanked_{false};
+  bool was_in_night_window_{false};
+  uint8_t night_off_hour_{23};
+  uint8_t night_off_minute_{0};
+  uint8_t night_on_hour_{7};
+  uint8_t night_on_minute_{0};
+#ifdef USE_TIME
+  time::RealTimeClock *night_time_{nullptr};
+#endif
   std::vector<uint8_t> screen_seen_{};
   size_t screen_index_{0};
   size_t next_index_{0};
@@ -867,6 +920,9 @@ class PixelLayout : public Component {
 #ifdef USE_FONT
   font::Font *font_{nullptr};
   font::Font *icon_font_{nullptr};
+#endif
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+  SdStorageManager sd_storage_;
 #endif
 };
 

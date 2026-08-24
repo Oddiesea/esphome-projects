@@ -5,6 +5,7 @@
 #include "esphome/core/gpio.h"
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/number/number.h"
+#include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 
 // Vendor VirtualMatrixPanel headers trip -Wparentheses / -Wtype-limits /
@@ -18,12 +19,15 @@
 #pragma GCC diagnostic pop
 
 #include <vector>
+#include <functional>
 
 namespace esphome {
 namespace hub75_dma {
 
 class Hub75DmaBrightness;
+class Hub75DmaCompensation;
 class Hub75DmaPowerSwitch;
+class Hub75DmaAdaptiveSwitch;
 
 class Hub75DmaDisplay : public display::DisplayBuffer {
  public:
@@ -57,12 +61,24 @@ class Hub75DmaDisplay : public display::DisplayBuffer {
   void fill(Color color) override;
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
                       display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) override;
-  void set_state(bool state) { this->enabled_ = state; }
+  void set_state(bool state);
   void set_brightness(uint8_t brightness);
   uint8_t get_initial_brightness() const { return this->initial_brightness_; }
 
   void register_brightness(Hub75DmaBrightness *brightness);
   void register_power_switch(Hub75DmaPowerSwitch *power_switch);
+  void add_on_power_state_callback(std::function<void(bool)> cb) { this->power_state_cbs_.push_back(std::move(cb)); }
+
+  void set_adaptive_lux_sensor(sensor::Sensor *sensor);
+  void set_adaptive_compensation(Hub75DmaCompensation *compensation);
+  void set_adaptive_enable_switch(Hub75DmaAdaptiveSwitch *enable);
+  void set_adaptive_range(uint8_t min_brightness, uint8_t max_brightness, float lux_reference);
+  void set_adaptive_enabled(bool enabled);
+  bool get_adaptive_enabled() const { return this->adaptive_enabled_; }
+  float get_adaptive_compensation() const;
+  void apply_adaptive_brightness(float lux);
+  void reapply_adaptive_brightness();
+  float get_last_lux() const { return this->last_lux_; }
 
  protected:
   void draw_absolute_pixel_internal(int x, int y, Color color) override;
@@ -70,6 +86,7 @@ class Hub75DmaDisplay : public display::DisplayBuffer {
   int get_height_internal() override;
   void draw_rgb_(int x, int y, uint8_t r, uint8_t g, uint8_t b);
   bool use_virtual_() const;
+  void on_lux_(float lux);
 
   MatrixPanel_I2S_DMA *dma_display_{nullptr};
   VirtualMatrixPanel *virtual_{nullptr};
@@ -82,6 +99,16 @@ class Hub75DmaDisplay : public display::DisplayBuffer {
   bool enabled_{true};
   std::vector<Hub75DmaBrightness *> brightness_values_;
   std::vector<Hub75DmaPowerSwitch *> power_switches_;
+  std::vector<std::function<void(bool)>> power_state_cbs_;
+
+  sensor::Sensor *adaptive_lux_sensor_{nullptr};
+  Hub75DmaCompensation *adaptive_compensation_{nullptr};
+  Hub75DmaAdaptiveSwitch *adaptive_enable_{nullptr};
+  bool adaptive_enabled_{true};
+  uint8_t adaptive_min_{8};
+  uint8_t adaptive_max_{255};
+  float adaptive_lux_reference_{500.0f};
+  float last_lux_{NAN};
 };
 
 class Hub75DmaBrightness : public number::Number, public Component {
@@ -96,7 +123,31 @@ class Hub75DmaBrightness : public number::Number, public Component {
   Hub75DmaDisplay *parent_{nullptr};
 };
 
+class Hub75DmaCompensation : public number::Number, public Component {
+ public:
+  void set_parent(Hub75DmaDisplay *parent) { this->parent_ = parent; }
+  void setup() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+ protected:
+  void control(float value) override;
+  Hub75DmaDisplay *parent_{nullptr};
+};
+
 class Hub75DmaPowerSwitch : public switch_::Switch, public Component {
+ public:
+  void set_parent(Hub75DmaDisplay *parent) { this->parent_ = parent; }
+  void setup() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+ protected:
+  void write_state(bool state) override;
+  Hub75DmaDisplay *parent_{nullptr};
+};
+
+class Hub75DmaAdaptiveSwitch : public switch_::Switch, public Component {
  public:
   void set_parent(Hub75DmaDisplay *parent) { this->parent_ = parent; }
   void setup() override;

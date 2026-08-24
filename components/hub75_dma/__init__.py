@@ -1,5 +1,5 @@
 import esphome.codegen as cg
-from esphome.components import display, number, switch
+from esphome.components import display, number, sensor, switch
 from esphome.components.esp32 import add_idf_component, add_idf_sdkconfig_option
 from esphome.core import CORE
 
@@ -20,8 +20,14 @@ Hub75DmaDisplay = hub75_dma_ns.class_(
 Hub75DmaBrightness = hub75_dma_ns.class_(
     "Hub75DmaBrightness", number.Number, cg.Component
 )
+Hub75DmaCompensation = hub75_dma_ns.class_(
+    "Hub75DmaCompensation", number.Number, cg.Component
+)
 Hub75DmaPowerSwitch = hub75_dma_ns.class_(
     "Hub75DmaPowerSwitch", switch.Switch, cg.Component
+)
+Hub75DmaAdaptiveSwitch = hub75_dma_ns.class_(
+    "Hub75DmaAdaptiveSwitch", switch.Switch, cg.Component
 )
 
 

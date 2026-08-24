@@ -2,21 +2,16 @@
 
 #include "esphome/core/log.h"
 
+static const char *const TAG = "pixel_layout.ha";
+
 namespace esphome {
 namespace pixel_layout {
 
 #ifdef USE_SELECT
 void PixelLayoutScreenSelect::setup() {
+  // Options come from select.new_select() at codegen (screen ids / transition names).
+  // SelectTraits no longer accepts std::vector<std::string>.
   if (this->parent_ != nullptr) {
-    std::vector<std::string> opts;
-    opts.reserve(this->parent_->screen_count());
-    for (size_t i = 0; i < this->parent_->screen_count(); i++) {
-      const std::string &id = this->parent_->screen_id(i);
-      if (!id.empty())
-        opts.push_back(id);
-    }
-    if (!opts.empty())
-      this->traits.set_options(opts);
     this->parent_->add_on_playlist_change([this]() { this->sync_(); });
   }
   this->sync_();
@@ -151,6 +146,24 @@ void PixelLayoutScreenEnabledSwitch::write_state(bool state) {
     this->parent_->set_screen_enabled(this->index_, state);
   this->publish_state(state);
 }
+
+void PixelLayoutNightScheduleSwitch::setup() {
+  if (this->parent_ != nullptr) {
+    this->parent_->add_on_playlist_change([this]() {
+      if (this->parent_ != nullptr)
+        this->publish_state(this->parent_->get_night_schedule_enabled());
+    });
+    this->publish_state(this->parent_->get_night_schedule_enabled());
+  }
+}
+
+void PixelLayoutNightScheduleSwitch::dump_config() { LOG_SWITCH("", "Pixel Layout Night Schedule", this); }
+
+void PixelLayoutNightScheduleSwitch::write_state(bool state) {
+  if (this->parent_ != nullptr)
+    this->parent_->set_night_schedule_enabled(state);
+  this->publish_state(state);
+}
 #endif
 
 #ifdef USE_BUTTON
@@ -159,6 +172,13 @@ void PixelLayoutNextButton::dump_config() { LOG_BUTTON("", "Pixel Layout Next Sc
 void PixelLayoutNextButton::press_action() {
   if (this->parent_ != nullptr)
     this->parent_->show_next_enabled();
+}
+
+void PixelLayoutSleepButton::dump_config() { LOG_BUTTON("", "Pixel Layout Sleep", this); }
+
+void PixelLayoutSleepButton::press_action() {
+  if (this->parent_ != nullptr)
+    this->parent_->sleep_until_wake();
 }
 #endif
 
@@ -198,6 +218,103 @@ void PixelLayoutTransitionDurationNumber::control(float value) {
     this->parent_->set_transition_ms(static_cast<uint32_t>(value * 1000.0f));
   this->publish_state(value);
 }
+
+void PixelLayoutNightHourNumber::setup() {
+  if (this->parent_ != nullptr) {
+    this->parent_->add_on_playlist_change([this]() { this->sync_(); });
+  }
+  this->sync_();
+}
+
+void PixelLayoutNightHourNumber::dump_config() { LOG_NUMBER("", "Pixel Layout Night Time", this); }
+
+void PixelLayoutNightHourNumber::sync_() {
+  if (this->parent_ == nullptr)
+    return;
+  float v = 0;
+  switch (this->which_) {
+    case 0:
+      v = this->parent_->get_night_off_hour();
+      break;
+    case 1:
+      v = this->parent_->get_night_off_minute();
+      break;
+    case 2:
+      v = this->parent_->get_night_on_hour();
+      break;
+    default:
+      v = this->parent_->get_night_on_minute();
+      break;
+  }
+  this->publish_state(v);
+}
+
+void PixelLayoutNightHourNumber::control(float value) {
+  if (this->parent_ != nullptr) {
+    const uint8_t v = static_cast<uint8_t>(value);
+    switch (this->which_) {
+      case 0:
+        this->parent_->set_night_off_hour(v);
+        break;
+      case 1:
+        this->parent_->set_night_off_minute(v);
+        break;
+      case 2:
+        this->parent_->set_night_on_hour(v);
+        break;
+      default:
+        this->parent_->set_night_on_minute(v);
+        break;
+    }
+  }
+  this->publish_state(value);
+}
+#endif
+
+#ifdef USE_PIXEL_LAYOUT_SD_STORAGE
+#ifdef USE_SWITCH
+void PixelLayoutUseSdLayoutSwitch::setup() {
+  if (this->parent_ != nullptr)
+    this->publish_state(this->parent_->sd_storage().use_sd_layout());
+}
+
+void PixelLayoutUseSdLayoutSwitch::dump_config() { LOG_SWITCH("", "Pixel Layout Use SD Layout", this); }
+
+void PixelLayoutUseSdLayoutSwitch::write_state(bool state) {
+  if (this->parent_ != nullptr)
+    this->parent_->sd_storage().set_use_sd_layout(state);
+  this->publish_state(state);
+}
+#endif
+
+#ifdef USE_BUTTON
+void PixelLayoutReloadSdLayoutButton::dump_config() { LOG_BUTTON("", "Pixel Layout Reload SD Layout", this); }
+
+void PixelLayoutReloadSdLayoutButton::press_action() {
+  if (this->parent_ != nullptr)
+    this->parent_->reload_from_sd();
+}
+#endif
+
+#ifdef USE_TEXT_SENSOR
+void PixelLayoutSdStatusTextSensor::setup() {
+  if (this->parent_ != nullptr)
+    this->last_ = this->parent_->sd_storage().status();
+  this->publish_state(this->last_);
+}
+
+void PixelLayoutSdStatusTextSensor::loop() {
+  if (this->parent_ == nullptr)
+    return;
+  const std::string &s = this->parent_->sd_storage().status();
+  if (s == this->last_)
+    return;
+  this->last_ = s;
+  this->publish_state(this->last_);
+}
+
+void PixelLayoutSdStatusTextSensor::dump_config() { LOG_TEXT_SENSOR("", "Pixel Layout SD Status", this); }
+#endif
 #endif
 
 }  // namespace pixel_layout

@@ -3,7 +3,7 @@ from esphome.components import button
 import esphome.config_validation as cv
 from esphome.const import CONF_TYPE
 
-from . import CONF_PIXEL_LAYOUT_ID, PixelLayout, PixelLayoutNextButton
+from . import CONF_PIXEL_LAYOUT_ID, PixelLayout, PixelLayoutNextButton, PixelLayoutReloadSdLayoutButton, PixelLayoutSleepButton
 
 DEPENDENCIES = ["pixel_layout"]
 
@@ -12,6 +12,18 @@ CONFIG_SCHEMA = cv.typed_schema(
         "next": button.button_schema(
             PixelLayoutNextButton,
             icon="mdi:skip-next",
+        )
+        .extend({cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout)})
+        .extend(cv.COMPONENT_SCHEMA),
+        "sleep": button.button_schema(
+            PixelLayoutSleepButton,
+            icon="mdi:sleep",
+        )
+        .extend({cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout)})
+        .extend(cv.COMPONENT_SCHEMA),
+        "reload_sd_layout": button.button_schema(
+            PixelLayoutReloadSdLayoutButton,
+            icon="mdi:reload",
         )
         .extend({cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout)})
         .extend(cv.COMPONENT_SCHEMA),

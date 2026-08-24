@@ -37,6 +37,7 @@ add_executable(pixel_layout_test
   draw_context_test.cpp
   layout_widgets_test.cpp
   pixel_layout_test.cpp
+  night_schedule_test.cpp
   perf_test.cpp
 )
 target_link_libraries(pixel_layout_test

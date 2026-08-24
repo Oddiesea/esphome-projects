@@ -11,11 +11,19 @@ from esphome.const import (
 from . import (
     CONF_PIXEL_LAYOUT_ID,
     PixelLayout,
+    PixelLayoutNightHourNumber,
     PixelLayoutRotateIntervalNumber,
     PixelLayoutTransitionDurationNumber,
 )
 
 DEPENDENCIES = ["pixel_layout"]
+
+_NIGHT_WHICH = {
+    "off_hour": 0,
+    "off_minute": 1,
+    "on_hour": 2,
+    "on_minute": 3,
+}
 
 CONFIG_SCHEMA = cv.typed_schema(
     {
@@ -45,6 +53,54 @@ CONFIG_SCHEMA = cv.typed_schema(
             }
         )
         .extend(cv.COMPONENT_SCHEMA),
+        "off_hour": number.number_schema(
+            PixelLayoutNightHourNumber,
+            icon="mdi:clock-start",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+        )
+        .extend(
+            {
+                cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout),
+                cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
+            }
+        )
+        .extend(cv.COMPONENT_SCHEMA),
+        "off_minute": number.number_schema(
+            PixelLayoutNightHourNumber,
+            icon="mdi:clock-start",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+        )
+        .extend(
+            {
+                cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout),
+                cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
+            }
+        )
+        .extend(cv.COMPONENT_SCHEMA),
+        "on_hour": number.number_schema(
+            PixelLayoutNightHourNumber,
+            icon="mdi:clock-end",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+        )
+        .extend(
+            {
+                cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout),
+                cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
+            }
+        )
+        .extend(cv.COMPONENT_SCHEMA),
+        "on_minute": number.number_schema(
+            PixelLayoutNightHourNumber,
+            icon="mdi:clock-end",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+        )
+        .extend(
+            {
+                cv.GenerateID(CONF_PIXEL_LAYOUT_ID): cv.use_id(PixelLayout),
+                cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
+            }
+        )
+        .extend(cv.COMPONENT_SCHEMA),
     },
     default_type="rotate_interval",
     lower=True,
@@ -53,10 +109,18 @@ CONFIG_SCHEMA = cv.typed_schema(
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_PIXEL_LAYOUT_ID])
-    if config[CONF_TYPE] == "transition_duration":
+    t = config[CONF_TYPE]
+    if t == "transition_duration":
         var = await number.new_number(config, min_value=0.0, max_value=5.0, step=0.05)
         await cg.register_component(var, config)
         cg.add(var.set_parent(parent))
+        return
+    if t in _NIGHT_WHICH:
+        max_v = 23.0 if t.endswith("hour") else 59.0
+        var = await number.new_number(config, min_value=0.0, max_value=max_v, step=1.0)
+        await cg.register_component(var, config)
+        cg.add(var.set_parent(parent))
+        cg.add(var.set_which(_NIGHT_WHICH[t]))
         return
 
     var = await number.new_number(config, min_value=1.0, max_value=600.0, step=1.0)

@@ -1,5 +1,8 @@
 #include "hub75_dma.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -56,6 +59,10 @@ void Hub75DmaDisplay::setup() {
     if (this->rotation_ != 0)
       this->virtual_->setRotation(this->rotation_);
   }
+
+  if (this->adaptive_lux_sensor_ != nullptr) {
+    this->adaptive_lux_sensor_->add_on_state_callback([this](float lux) { this->on_lux_(lux); });
+  }
 }
 
 void Hub75DmaDisplay::update() {
@@ -88,6 +95,10 @@ void Hub75DmaDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Clock phase: %s", YESNO(cfg.clkphase));
   ESP_LOGCONFIG(TAG, "  Double buffer: %s", YESNO(cfg.double_buff));
   ESP_LOGCONFIG(TAG, "  Brightness: %u", this->initial_brightness_);
+  if (this->adaptive_lux_sensor_ != nullptr) {
+    ESP_LOGCONFIG(TAG, "  Adaptive brightness: lux sensor set, range %u-%u, lux_ref %.0f", this->adaptive_min_,
+                  this->adaptive_max_, this->adaptive_lux_reference_);
+  }
 }
 
 void Hub75DmaDisplay::set_brightness(uint8_t brightness) {
@@ -99,12 +110,79 @@ void Hub75DmaDisplay::set_brightness(uint8_t brightness) {
   }
 }
 
+void Hub75DmaDisplay::set_state(bool state) {
+  if (this->enabled_ == state)
+    return;
+  this->enabled_ = state;
+  for (auto &cb : this->power_state_cbs_)
+    cb(state);
+}
+
 void Hub75DmaDisplay::register_brightness(Hub75DmaBrightness *brightness) {
   this->brightness_values_.push_back(brightness);
 }
 
 void Hub75DmaDisplay::register_power_switch(Hub75DmaPowerSwitch *power_switch) {
   this->power_switches_.push_back(power_switch);
+}
+
+void Hub75DmaDisplay::set_adaptive_lux_sensor(sensor::Sensor *sensor) {
+  this->adaptive_lux_sensor_ = sensor;
+}
+
+void Hub75DmaDisplay::set_adaptive_compensation(Hub75DmaCompensation *compensation) {
+  this->adaptive_compensation_ = compensation;
+}
+
+void Hub75DmaDisplay::set_adaptive_enable_switch(Hub75DmaAdaptiveSwitch *enable) {
+  this->adaptive_enable_ = enable;
+}
+
+void Hub75DmaDisplay::set_adaptive_range(uint8_t min_brightness, uint8_t max_brightness, float lux_reference) {
+  this->adaptive_min_ = min_brightness;
+  this->adaptive_max_ = max_brightness;
+  this->adaptive_lux_reference_ = lux_reference > 1.0f ? lux_reference : 500.0f;
+}
+
+void Hub75DmaDisplay::set_adaptive_enabled(bool enabled) {
+  this->adaptive_enabled_ = enabled;
+}
+
+float Hub75DmaDisplay::get_adaptive_compensation() const {
+  if (this->adaptive_compensation_ == nullptr)
+    return 1.0f;
+  const float c = this->adaptive_compensation_->state;
+  if (std::isnan(c) || c <= 0.0f)
+    return 1.0f;
+  return c;
+}
+
+void Hub75DmaDisplay::on_lux_(float lux) {
+  this->last_lux_ = lux;
+  if (!this->adaptive_enabled_)
+    return;
+  this->apply_adaptive_brightness(lux);
+}
+
+void Hub75DmaDisplay::apply_adaptive_brightness(float lux) {
+  if (std::isnan(lux) || lux < 0.0f)
+    return;
+  const uint8_t lo = std::min(this->adaptive_min_, this->adaptive_max_);
+  const uint8_t hi = std::max(this->adaptive_min_, this->adaptive_max_);
+  const float span = static_cast<float>(hi > lo ? hi - lo : 1);
+  const float t = (lux / this->adaptive_lux_reference_) * this->get_adaptive_compensation();
+  int bri = static_cast<int>(static_cast<float>(lo) + t * span);
+  if (bri < lo)
+    bri = lo;
+  if (bri > hi)
+    bri = hi;
+  this->set_brightness(static_cast<uint8_t>(bri));
+}
+
+void Hub75DmaDisplay::reapply_adaptive_brightness() {
+  if (!this->adaptive_enabled_)
+    return;
+  this->apply_adaptive_brightness(this->last_lux_);
 }
 
 void HOT Hub75DmaDisplay::draw_absolute_pixel_internal(int x, int y, Color color) {
@@ -177,6 +255,19 @@ void Hub75DmaBrightness::control(float value) {
   this->publish_state(value);
 }
 
+void Hub75DmaCompensation::setup() {
+  if (std::isnan(this->state) || this->state <= 0.0f)
+    this->publish_state(1.0f);
+}
+
+void Hub75DmaCompensation::dump_config() { LOG_NUMBER("", "HUB75 DMA Brightness Compensation", this); }
+
+void Hub75DmaCompensation::control(float value) {
+  this->publish_state(value);
+  if (this->parent_ != nullptr)
+    this->parent_->reapply_adaptive_brightness();
+}
+
 void Hub75DmaPowerSwitch::setup() {
   this->publish_state(true);
 }
@@ -186,6 +277,22 @@ void Hub75DmaPowerSwitch::dump_config() { LOG_SWITCH("", "HUB75 DMA Power", this
 void Hub75DmaPowerSwitch::write_state(bool state) {
   if (this->parent_ != nullptr)
     this->parent_->set_state(state);
+  this->publish_state(state);
+}
+
+void Hub75DmaAdaptiveSwitch::setup() {
+  const bool on = this->parent_ == nullptr || this->parent_->get_adaptive_enabled();
+  this->publish_state(on);
+}
+
+void Hub75DmaAdaptiveSwitch::dump_config() { LOG_SWITCH("", "HUB75 DMA Adaptive Brightness", this); }
+
+void Hub75DmaAdaptiveSwitch::write_state(bool state) {
+  if (this->parent_ != nullptr) {
+    this->parent_->set_adaptive_enabled(state);
+    if (state)
+      this->parent_->reapply_adaptive_brightness();
+  }
   this->publish_state(state);
 }
 
