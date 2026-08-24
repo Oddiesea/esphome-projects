@@ -754,8 +754,17 @@ bool ClockWidget::refresh_time_(uint32_t now_ms) {
   int hour = 0, minute = 0, second = 0;
   bool valid = false;
 #ifdef USE_TIME
-  if (this->time_ != nullptr) {
-    auto now = this->time_->now();
+  time::RealTimeClock *rtc = this->time_;
+  if (rtc != nullptr) {
+    auto now = rtc->now();
+    valid = now.is_valid();
+    hour = now.hour;
+    minute = now.minute;
+    second = now.second;
+  }
+  if (!valid && this->fallback_time_ != nullptr) {
+    rtc = this->fallback_time_;
+    auto now = rtc->now();
     valid = now.is_valid();
     hour = now.hour;
     minute = now.minute;
@@ -780,7 +789,7 @@ bool ClockWidget::refresh_time_(uint32_t now_ms) {
   }
   if (this->theme_ == ClockTheme::TYPEFACE && !this->format_.empty()) {
 #ifdef USE_TIME
-    this->time_->now().strftime(this->label_, sizeof(this->label_), this->format_.c_str());
+    rtc->now().strftime(this->label_, sizeof(this->label_), this->format_.c_str());
 #else
     this->label_[0] = '\0';
 #endif
@@ -1385,12 +1394,11 @@ void WeatherWidget::apply_condition_(const char *condition) {
   weather_key(condition, this->condition_key_, sizeof(this->condition_key_));
   const char *glyph = weather_glyph(condition);
   std::string label = weather_label(condition);
-  const WeatherCustomIcon *custom = this->find_custom_icon_(this->condition_key_);
-  if (this->glyph_ == glyph && this->label_ == label && this->active_custom_ == custom)
+  // Look up by key at use-time — CustomIconEntry pointers dangle after vector growth.
+  if (this->glyph_ == glyph && this->label_ == label)
     return;
   this->glyph_ = glyph;
   this->label_ = label;
-  this->active_custom_ = custom;
   this->mark_dirty();
 }
 
@@ -1408,7 +1416,6 @@ void WeatherWidget::add_custom_icon(const std::string &key, const uint8_t *pixel
     entry.icon.palette_count = entry.palette_storage.size();
   }
   this->custom_icons_.push_back(std::move(entry));
-  this->active_custom_ = this->find_custom_icon_(this->condition_key_);
 }
 
 static const char *weather_icon_alias(const char *key) {
@@ -1520,8 +1527,9 @@ void WeatherWidget::bind(PixelLayout *host) {
 }
 
 int WeatherWidget::icon_size_() const {
-  if (this->active_custom_ != nullptr)
-    return std::max(this->active_custom_->width, this->active_custom_->height);
+  const WeatherCustomIcon *icon = this->find_custom_icon_(this->condition_key_);
+  if (icon != nullptr)
+    return std::max(icon->width, icon->height);
 #ifdef USE_FONT
   if (this->icon_font_ != nullptr)
     return this->icon_font_->get_height();
@@ -1822,8 +1830,9 @@ void WeatherWidget::draw(DrawContext &ctx, uint32_t now_ms) {
     const int text_x = layout.text_x;
     const int text_y = layout.text_y;
     if (this->show_icon_) {
-      if (this->active_custom_ != nullptr) {
-        this->draw_custom_icon_(ctx, icon_x, icon_y, this->active_custom_, a, ink);
+      const WeatherCustomIcon *icon = this->find_custom_icon_(this->condition_key_);
+      if (icon != nullptr) {
+        this->draw_custom_icon_(ctx, icon_x, icon_y, icon, a, ink);
       } else {
         font::Font *face = this->icon_font_ != nullptr ? this->icon_font_ : this->font_;
         ctx.draw_text(icon_x, icon_y, face, fill, a, this->glyph_.c_str());

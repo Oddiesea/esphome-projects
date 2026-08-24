@@ -43,6 +43,7 @@ CONF_TRANSITION = "transition"
 CONF_TRANSITION_DURATION = "transition_duration"
 CONF_BACKGROUND = "background"
 CONF_ICON_FONT = "icon_font"
+CONF_FALLBACK_TIME_ID = "fallback_time_id"
 CONF_CHILDREN = "children"
 CONF_CHILD = "child"
 CONF_GAP = "gap"
@@ -734,6 +735,7 @@ WIDGET_SCHEMAS["clock"] = cv.All(
         {
             **_base(ClockWidget),
             cv.Required(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
+            cv.Optional(CONF_FALLBACK_TIME_ID): cv.use_id(time.RealTimeClock),
             cv.Optional(CONF_FACE, default="digital"): validate_face,
             cv.Optional(CONF_THEME, default="seven_segment"): validate_theme,
             cv.Optional(CONF_SIZE, default="md"): cv.enum(CLOCK_SIZES, lower=True),
@@ -1111,6 +1113,9 @@ async def build_widget(config: ConfigType, defaults: dict):
     elif t == "clock":
         rtc = await cg.get_variable(config[CONF_TIME_ID])
         cg.add(var.set_time(rtc))
+        if CONF_FALLBACK_TIME_ID in config:
+            fallback = await cg.get_variable(config[CONF_FALLBACK_TIME_ID])
+            cg.add(var.set_fallback_time(fallback))
         cg.add(var.set_face(config[CONF_FACE]))
         cg.add(var.set_theme(config[CONF_THEME]))
         cg.add(var.set_size(config[CONF_SIZE]))
@@ -1140,8 +1145,6 @@ async def build_widget(config: ConfigType, defaults: dict):
         if CONF_CONDITION_ID in config:
             ts = await cg.get_variable(config[CONF_CONDITION_ID])
             cg.add(var.set_condition_sensor(ts))
-        if CONF_CONDITION in config:
-            cg.add(var.set_condition(config[CONF_CONDITION]))
         cg.add(var.set_show_icon(config[CONF_SHOW_ICON]))
         cg.add(var.set_show_condition(config[CONF_SHOW_CONDITION]))
         cg.add(var.set_show_temp(config[CONF_SHOW_TEMP]))
@@ -1163,7 +1166,10 @@ async def build_widget(config: ConfigType, defaults: dict):
         if CONF_WIND_BEARING_ID in config:
             sens = await cg.get_variable(config[CONF_WIND_BEARING_ID])
             cg.add(var.set_wind_bearing_sensor(sens))
+        # Icons before set_condition so the first lookup can resolve custom bitmaps.
         await _codegen_weather_icons(var, config)
+        if CONF_CONDITION in config:
+            cg.add(var.set_condition(config[CONF_CONDITION]))
     elif t == "sprite":
         if CONF_IMAGE_ID in config:
             img = await cg.get_variable(config[CONF_IMAGE_ID])

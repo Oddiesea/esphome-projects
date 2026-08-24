@@ -479,6 +479,7 @@ class ClockWidget : public Widget {
   void set_size(ClockSize size) { this->size_ = size; }
 #ifdef USE_TIME
   void set_time(time::RealTimeClock *time) { this->time_ = time; }
+  void set_fallback_time(time::RealTimeClock *time) { this->fallback_time_ = time; }
 #endif
 #ifdef USE_FONT
   void set_font(font::Font *font) { this->font_ = font; }
@@ -544,6 +545,7 @@ class ClockWidget : public Widget {
   char label_[32]{"--:--"};
 #ifdef USE_TIME
   time::RealTimeClock *time_{nullptr};
+  time::RealTimeClock *fallback_time_{nullptr};
 #endif
 #ifdef USE_FONT
   font::Font *font_{nullptr};
@@ -652,7 +654,6 @@ class WeatherWidget : public Widget {
   std::string glyph_;
   std::string label_;
   char condition_key_[48]{};
-  const WeatherCustomIcon *active_custom_{nullptr};
   struct CustomIconEntry {
     std::string key;
     WeatherCustomIcon icon;
