@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from esphome import codegen as cg
-from esphome.components import display, font, sensor, text_sensor, time
+from esphome.components import button, display, font, number, select, sensor, switch, text_sensor, time
 from esphome.components.color import ColorStruct
 import esphome.config_validation as cv
 from esphome.const import (
@@ -34,8 +34,9 @@ from .sprite_pack import validate_pack
 
 CODEOWNERS = ["@liamjones"]
 DEPENDENCIES = ["display"]
-AUTO_LOAD = ["image"]
+AUTO_LOAD = ["image", "select", "switch", "number", "button"]
 
+CONF_PIXEL_LAYOUT_ID = "pixel_layout_id"
 CONF_ROOT = "root"
 CONF_SCREENS = "screens"
 CONF_ROTATE = "rotate"
@@ -269,6 +270,32 @@ async def _codegen_weather_icons(var, config: ConfigType) -> None:
 
 pixel_layout_ns = cg.esphome_ns.namespace("pixel_layout")
 PixelLayout = pixel_layout_ns.class_("PixelLayout", cg.Component)
+PixelLayoutScreenSelect = pixel_layout_ns.class_(
+    "PixelLayoutScreenSelect", select.Select, cg.Component
+)
+PixelLayoutTransitionSelect = pixel_layout_ns.class_(
+    "PixelLayoutTransitionSelect", select.Select, cg.Component
+)
+PixelLayoutPinSwitch = pixel_layout_ns.class_("PixelLayoutPinSwitch", switch.Switch, cg.Component)
+PixelLayoutRandomSwitch = pixel_layout_ns.class_(
+    "PixelLayoutRandomSwitch", switch.Switch, cg.Component
+)
+PixelLayoutRotateOverrideSwitch = pixel_layout_ns.class_(
+    "PixelLayoutRotateOverrideSwitch", switch.Switch, cg.Component
+)
+PixelLayoutTransitionOverrideSwitch = pixel_layout_ns.class_(
+    "PixelLayoutTransitionOverrideSwitch", switch.Switch, cg.Component
+)
+PixelLayoutScreenEnabledSwitch = pixel_layout_ns.class_(
+    "PixelLayoutScreenEnabledSwitch", switch.Switch, cg.Component
+)
+PixelLayoutNextButton = pixel_layout_ns.class_("PixelLayoutNextButton", button.Button, cg.Component)
+PixelLayoutRotateIntervalNumber = pixel_layout_ns.class_(
+    "PixelLayoutRotateIntervalNumber", number.Number, cg.Component
+)
+PixelLayoutTransitionDurationNumber = pixel_layout_ns.class_(
+    "PixelLayoutTransitionDurationNumber", number.Number, cg.Component
+)
 Widget = pixel_layout_ns.class_("Widget")
 StackWidget = pixel_layout_ns.class_("StackWidget", Widget)
 RowWidget = pixel_layout_ns.class_("RowWidget", Widget)
@@ -930,6 +957,26 @@ SCREEN_SCHEMA = cv.All(
     _expand_screen,
 )
 
+
+def _ensure_unique_screen_ids(config):
+    screens = config.get(CONF_SCREENS)
+    if not screens:
+        return config
+    used = set()
+    for i, screen in enumerate(screens):
+        raw = (screen.get(CONF_ID) or "").strip()
+        if not raw:
+            raw = f"screen_{i + 1}"
+        base = raw
+        n = 2
+        while raw in used:
+            raw = f"{base}_{n}"
+            n += 1
+        used.add(raw)
+        screen[CONF_ID] = raw
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -949,6 +996,7 @@ CONFIG_SCHEMA = cv.All(
     ).extend(cv.COMPONENT_SCHEMA),
     cv.has_at_least_one_key(CONF_ROOT, CONF_SCREENS),
     _walk_validate_sprite,
+    _ensure_unique_screen_ids,
 )
 
 
@@ -1214,6 +1262,7 @@ async def build_widget(config: ConfigType, defaults: dict):
 async def to_code(config: ConfigType):
     from .sprite_pack import codegen_sprite_packs
 
+    cg.add_global(RawStatement('#include "esphome/components/pixel_layout/playlist_ha.h"'))
     await codegen_sprite_packs()
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -1236,8 +1285,9 @@ async def to_code(config: ConfigType):
     cg.add(var.set_screen_random(config["random"]))
     screens = config.get(CONF_SCREENS)
     if not screens:
-        screens = [{CONF_ROOT: config[CONF_ROOT]}]
-    for screen in screens:
+        screens = [{CONF_ROOT: config[CONF_ROOT], CONF_ID: "screen_1"}]
+    screen_ids = []
+    for i, screen in enumerate(screens):
         root = await build_widget(screen[CONF_ROOT], defaults)
         duration = _ms(screen[CONF_DURATION]) if CONF_DURATION in screen else 0
         trans = screen.get(CONF_TRANSITION, config[CONF_TRANSITION])
@@ -1246,7 +1296,10 @@ async def to_code(config: ConfigType):
             if CONF_TRANSITION_DURATION in screen
             else _ms(config[CONF_TRANSITION_DURATION])
         )
-        cg.add(var.add_screen(root, duration, trans, trans_ms))
+        sid = screen.get(CONF_ID) or f"screen_{i + 1}"
+        screen_ids.append(sid)
+        cg.add(var.add_screen(root, duration, trans, trans_ms, sid))
+    CORE.data.setdefault("pixel_layout", {})[str(config[CONF_ID])] = {"screen_ids": screen_ids}
 
 
 # Keep JSON available for tests / docs.

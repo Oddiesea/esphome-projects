@@ -3,6 +3,7 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/display/display_color_utils.h"
 
 #include <cinttypes>
@@ -1158,6 +1159,8 @@ void PixelLayout::setup() {
   this->display_->set_writer([this](display::Display &it) { this->render_(it); });
   if (this->screens_.empty() && this->root_ != nullptr)
     this->add_screen(this->root_, 0);
+  this->ensure_enabled_vectors_();
+  this->load_prefs_();
   for (Widget *screen : this->screens_) {
     screen->bind(this);
     screen->layout(0, 0, w, h);
@@ -1165,8 +1168,9 @@ void PixelLayout::setup() {
   this->laid_out_ = true;
   this->dirty_ = true;
   this->screen_started_ms_ = millis();
-  if (!this->screen_seen_.empty())
-    this->screen_seen_[0] = 1;
+  if (!this->screen_seen_.empty() && this->screen_index_ < this->screen_seen_.size())
+    this->screen_seen_[this->screen_index_] = 1;
+  this->notify_playlist_();
   this->set_timeout(0, [this]() { this->tick_(); });
 }
 
@@ -1196,11 +1200,46 @@ void PixelLayout::set_root(Widget *root) {
     this->add_screen(root, 0);
 }
 
+void PixelLayout::set_rotate_ms(uint32_t ms) {
+  this->rotate_ms_ = ms == 0 ? 1 : ms;
+  if (!this->prefs_loaded_)
+    this->rotate_default_ms_ = this->rotate_ms_;
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_transition(ScreenTransition type) {
+  this->transition_ = type;
+  if (!this->prefs_loaded_)
+    this->transition_default_ = type;
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_transition_ms(uint32_t ms) {
+  this->transition_ms_ = ms;
+  if (!this->prefs_loaded_)
+    this->transition_default_ms_ = ms;
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_screen_random(bool random) {
+  this->screen_random_ = random;
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
 void PixelLayout::add_screen(Widget *root, uint32_t duration_ms) {
-  this->add_screen(root, duration_ms, this->transition_, this->transition_ms_);
+  this->add_screen(root, duration_ms, this->transition_, this->transition_ms_, "");
 }
 
 void PixelLayout::add_screen(Widget *root, uint32_t duration_ms, ScreenTransition transition, uint32_t transition_ms) {
+  this->add_screen(root, duration_ms, transition, transition_ms, "");
+}
+
+void PixelLayout::add_screen(Widget *root, uint32_t duration_ms, ScreenTransition transition, uint32_t transition_ms,
+                             const std::string &id) {
   if (root == nullptr)
     return;
   this->screens_.push_back(root);
@@ -1208,20 +1247,195 @@ void PixelLayout::add_screen(Widget *root, uint32_t duration_ms, ScreenTransitio
   this->screen_transition_.push_back(transition);
   this->screen_transition_ms_.push_back(transition_ms);
   this->screen_seen_.push_back(0);
+  this->screen_enabled_flags_.push_back(1);
+  std::string sid = id;
+  if (sid.empty())
+    sid = "screen_" + std::to_string(this->screens_.size());
+  this->screen_ids_.push_back(std::move(sid));
   if (this->root_ == nullptr)
     this->root_ = root;
 }
 
+void PixelLayout::ensure_enabled_vectors_() {
+  while (this->screen_enabled_flags_.size() < this->screens_.size())
+    this->screen_enabled_flags_.push_back(1);
+  while (this->screen_ids_.size() < this->screens_.size())
+    this->screen_ids_.push_back("screen_" + std::to_string(this->screen_ids_.size() + 1));
+}
+
+bool PixelLayout::screen_enabled_(size_t index) const {
+  if (index >= this->screens_.size())
+    return false;
+  if (index >= this->screen_enabled_flags_.size())
+    return true;
+  return this->screen_enabled_flags_[index] != 0;
+}
+
+bool PixelLayout::is_screen_enabled(size_t index) const { return this->screen_enabled_(index); }
+
+void PixelLayout::set_screen_enabled(size_t index, bool enabled) {
+  this->ensure_enabled_vectors_();
+  if (index >= this->screens_.size())
+    return;
+  this->screen_enabled_flags_[index] = enabled ? 1 : 0;
+  this->save_prefs_();
+  if (!enabled && !this->pinned_ && index == this->screen_index_)
+    this->show_next_enabled();
+  this->notify_playlist_();
+}
+
+const std::string &PixelLayout::screen_id(size_t index) const {
+  static const std::string EMPTY;
+  if (index >= this->screen_ids_.size())
+    return EMPTY;
+  return this->screen_ids_[index];
+}
+
+std::string PixelLayout::current_screen_id() const { return this->screen_id(this->screen_index_); }
+
+bool PixelLayout::show_screen(size_t index) {
+  if (index >= this->screens_.size())
+    return false;
+  this->transitioning_ = false;
+  this->screen_index_ = index;
+  this->next_index_ = index;
+  this->screen_started_ms_ = millis();
+  if (index < this->screen_seen_.size())
+    this->screen_seen_[index] = 1;
+  this->request_redraw();
+  this->save_prefs_();
+  this->notify_playlist_();
+  return true;
+}
+
+bool PixelLayout::show_screen(const std::string &id) {
+  for (size_t i = 0; i < this->screen_ids_.size(); i++) {
+    if (this->screen_ids_[i] == id)
+      return this->show_screen(i);
+  }
+  return false;
+}
+
+bool PixelLayout::show_next_enabled() {
+  if (this->pinned_)
+    return false;
+  const size_t next = this->choose_next_screen_();
+  if (next == this->screen_index_)
+    return false;
+  return this->show_screen(next);
+}
+
+void PixelLayout::set_pinned(bool pinned) {
+  this->pinned_ = pinned;
+  if (!pinned)
+    this->screen_started_ms_ = millis();
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_rotate_override(bool on) {
+  this->rotate_override_ = on;
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
+void PixelLayout::set_transition_override(bool on) {
+  this->transition_override_ = on;
+  this->save_prefs_();
+  this->notify_playlist_();
+}
+
+void PixelLayout::notify_playlist_() {
+  for (auto &cb : this->playlist_cbs_)
+    cb();
+}
+
+struct PlaylistPrefs {
+  uint8_t magic{0xA5};
+  uint8_t pinned{0};
+  uint8_t random{0};
+  uint8_t rotate_override{0};
+  uint8_t transition_override{0};
+  uint8_t transition{0};
+  uint16_t screen_index{0};
+  uint32_t rotate_ms{8000};
+  uint32_t transition_ms{400};
+  uint32_t enabled_mask{0xFFFFFFFFu};
+};
+
+void PixelLayout::load_prefs_() {
+  this->prefs_loaded_ = true;
+  if (global_preferences == nullptr)
+    return;
+  auto pref = global_preferences->make_preference<PlaylistPrefs>(fnv1_hash("pixel_layout_playlist_v1"));
+  PlaylistPrefs p{};
+  if (!pref.load(&p) || p.magic != 0xA5)
+    return;
+  this->pinned_ = p.pinned != 0;
+  this->screen_random_ = p.random != 0;
+  this->rotate_override_ = p.rotate_override != 0;
+  this->transition_override_ = p.transition_override != 0;
+  if (p.rotate_ms > 0)
+    this->rotate_ms_ = p.rotate_ms;
+  this->transition_ms_ = p.transition_ms;
+  this->transition_ = static_cast<ScreenTransition>(p.transition);
+  this->ensure_enabled_vectors_();
+  const size_t n = this->screens_.size();
+  for (size_t i = 0; i < n && i < 32; i++)
+    this->screen_enabled_flags_[i] = (p.enabled_mask & (1u << i)) ? 1 : 0;
+  if (p.screen_index < n)
+    this->screen_index_ = p.screen_index;
+}
+
+void PixelLayout::save_prefs_() {
+  if (!this->prefs_loaded_ || global_preferences == nullptr)
+    return;
+  PlaylistPrefs p{};
+  p.magic = 0xA5;
+  p.pinned = this->pinned_ ? 1 : 0;
+  p.random = this->screen_random_ ? 1 : 0;
+  p.rotate_override = this->rotate_override_ ? 1 : 0;
+  p.transition_override = this->transition_override_ ? 1 : 0;
+  p.transition = static_cast<uint8_t>(this->transition_);
+  p.screen_index = static_cast<uint16_t>(this->screen_index_);
+  p.rotate_ms = this->rotate_ms_;
+  p.transition_ms = this->transition_ms_;
+  uint32_t mask = 0;
+  const size_t n = std::min(this->screens_.size(), size_t{32});
+  for (size_t i = 0; i < n; i++) {
+    if (this->screen_enabled_(i))
+      mask |= (1u << i);
+  }
+  p.enabled_mask = mask;
+  auto pref = global_preferences->make_preference<PlaylistPrefs>(fnv1_hash("pixel_layout_playlist_v1"));
+  pref.save(&p);
+}
+
 ScreenTransition PixelLayout::transition_for_(size_t index) const {
+  if (this->transition_override_)
+    return this->transition_;
   if (index < this->screen_transition_.size())
     return this->screen_transition_[index];
-  return this->transition_;
+  return this->transition_default_;
 }
 
 uint32_t PixelLayout::transition_ms_for_(size_t index) const {
+  if (this->transition_override_)
+    return this->transition_ms_;
   if (index < this->screen_transition_ms_.size())
     return this->screen_transition_ms_[index];
-  return this->transition_ms_;
+  return this->transition_default_ms_;
+}
+
+uint32_t PixelLayout::dwell_ms_for_(size_t index) const {
+  if (this->rotate_override_)
+    return this->rotate_ms_;
+  uint32_t dwell = 0;
+  if (index < this->screen_duration_ms_.size())
+    dwell = this->screen_duration_ms_[index];
+  if (dwell == 0)
+    dwell = this->rotate_default_ms_;
+  return dwell == 0 ? 1 : dwell;
 }
 
 Widget *PixelLayout::active_root_() const {
@@ -1240,26 +1454,36 @@ size_t PixelLayout::choose_next_screen_() {
   const size_t n = this->screens_.size();
   if (n < 2)
     return this->screen_index_;
-  if (this->screen_random_) {
+
+  auto collect = [&](bool require_unseen) {
     std::vector<size_t> candidates;
     candidates.reserve(n);
     for (size_t i = 0; i < n; i++) {
       if (i == this->screen_index_)
         continue;
-      if (!this->screen_loop_ && i < this->screen_seen_.size() && this->screen_seen_[i])
+      if (!this->screen_enabled_(i))
+        continue;
+      if (require_unseen && !this->screen_loop_ && i < this->screen_seen_.size() && this->screen_seen_[i])
         continue;
       candidates.push_back(i);
     }
+    return candidates;
+  };
+
+  if (this->screen_random_) {
+    auto candidates = collect(true);
     if (candidates.empty()) {
-      if (!this->screen_loop_)
-        return this->screen_index_;
-      for (size_t i = 0; i < this->screen_seen_.size(); i++)
-        this->screen_seen_[i] = 0;
-      if (this->screen_index_ < this->screen_seen_.size())
-        this->screen_seen_[this->screen_index_] = 1;
-      for (size_t i = 0; i < n; i++) {
-        if (i != this->screen_index_)
-          candidates.push_back(i);
+      if (!this->screen_loop_) {
+        // Fall back to any other enabled screen, or stay.
+        candidates = collect(false);
+        if (candidates.empty())
+          return this->screen_index_;
+      } else {
+        for (size_t i = 0; i < this->screen_seen_.size(); i++)
+          this->screen_seen_[i] = 0;
+        if (this->screen_index_ < this->screen_seen_.size())
+          this->screen_seen_[this->screen_index_] = 1;
+        candidates = collect(false);
       }
     }
     if (candidates.empty())
@@ -1269,9 +1493,16 @@ size_t PixelLayout::choose_next_screen_() {
       this->screen_seen_[next] = 1;
     return next;
   }
-  if (!this->screen_loop_ && this->screen_index_ + 1 >= n)
-    return this->screen_index_;
-  return (this->screen_index_ + 1) % n;
+
+  for (size_t step = 1; step <= n; step++) {
+    const size_t i = (this->screen_index_ + step) % n;
+    if (!this->screen_enabled_(i))
+      continue;
+    if (!this->screen_loop_ && i <= this->screen_index_ && step != 0)
+      return this->screen_index_;
+    return i;
+  }
+  return this->screen_index_;
 }
 
 void PixelLayout::advance_screens_(uint32_t now_ms) {
@@ -1283,12 +1514,14 @@ void PixelLayout::advance_screens_(uint32_t now_ms) {
       this->screen_index_ = this->next_index_;
       this->screen_started_ms_ = now_ms;
       this->dirty_ = true;
+      this->save_prefs_();
+      this->notify_playlist_();
     }
     return;
   }
-  uint32_t dwell = this->screen_duration_ms_[this->screen_index_];
-  if (dwell == 0)
-    dwell = this->rotate_ms_;
+  if (this->pinned_)
+    return;
+  const uint32_t dwell = this->dwell_ms_for_(this->screen_index_);
   if (now_ms - this->screen_started_ms_ < dwell)
     return;
   const size_t next = this->choose_next_screen_();
@@ -1303,8 +1536,102 @@ void PixelLayout::advance_screens_(uint32_t now_ms) {
   } else {
     this->screen_index_ = next;
     this->screen_started_ms_ = now_ms;
+    this->save_prefs_();
+    this->notify_playlist_();
   }
   this->dirty_ = true;
+}
+
+const char *screen_transition_name(ScreenTransition t) {
+  switch (t) {
+    case ScreenTransition::CUT:
+      return "cut";
+    case ScreenTransition::FADE:
+      return "fade";
+    case ScreenTransition::SLIDE_LEFT:
+      return "slide_left";
+    case ScreenTransition::SLIDE_RIGHT:
+      return "slide_right";
+    case ScreenTransition::SLIDE_UP:
+      return "slide_up";
+    case ScreenTransition::SLIDE_DOWN:
+      return "slide_down";
+    case ScreenTransition::WIPE_LEFT:
+      return "wipe_left";
+    case ScreenTransition::WIPE_RIGHT:
+      return "wipe_right";
+    case ScreenTransition::WIPE_UP:
+      return "wipe_up";
+    case ScreenTransition::WIPE_DOWN:
+      return "wipe_down";
+    case ScreenTransition::IRIS:
+      return "iris";
+    case ScreenTransition::DISSOLVE:
+      return "dissolve";
+    case ScreenTransition::BLINDS:
+      return "blinds";
+    default:
+      return "fade";
+  }
+}
+
+bool screen_transition_from_name(const char *name, ScreenTransition *out) {
+  if (name == nullptr || out == nullptr)
+    return false;
+  const char *n = name;
+  if (strcmp(n, "none") == 0 || strcmp(n, "cut") == 0) {
+    *out = ScreenTransition::CUT;
+    return true;
+  }
+  if (strcmp(n, "fade") == 0) {
+    *out = ScreenTransition::FADE;
+    return true;
+  }
+  if (strcmp(n, "slide") == 0 || strcmp(n, "slide_left") == 0) {
+    *out = ScreenTransition::SLIDE_LEFT;
+    return true;
+  }
+  if (strcmp(n, "slide_right") == 0) {
+    *out = ScreenTransition::SLIDE_RIGHT;
+    return true;
+  }
+  if (strcmp(n, "slide_up") == 0) {
+    *out = ScreenTransition::SLIDE_UP;
+    return true;
+  }
+  if (strcmp(n, "slide_down") == 0) {
+    *out = ScreenTransition::SLIDE_DOWN;
+    return true;
+  }
+  if (strcmp(n, "wipe") == 0 || strcmp(n, "wipe_left") == 0) {
+    *out = ScreenTransition::WIPE_LEFT;
+    return true;
+  }
+  if (strcmp(n, "wipe_right") == 0) {
+    *out = ScreenTransition::WIPE_RIGHT;
+    return true;
+  }
+  if (strcmp(n, "wipe_up") == 0) {
+    *out = ScreenTransition::WIPE_UP;
+    return true;
+  }
+  if (strcmp(n, "wipe_down") == 0) {
+    *out = ScreenTransition::WIPE_DOWN;
+    return true;
+  }
+  if (strcmp(n, "iris") == 0) {
+    *out = ScreenTransition::IRIS;
+    return true;
+  }
+  if (strcmp(n, "dissolve") == 0) {
+    *out = ScreenTransition::DISSOLVE;
+    return true;
+  }
+  if (strcmp(n, "blinds") == 0) {
+    *out = ScreenTransition::BLINDS;
+    return true;
+  }
+  return false;
 }
 
 void PixelLayout::tick_() {
@@ -1363,11 +1690,12 @@ void PixelLayout::host_init(int width, int height) {
     screen->bind(this);
     screen->layout(0, 0, width, height);
   }
+  this->ensure_enabled_vectors_();
   this->laid_out_ = true;
   this->dirty_ = true;
   this->screen_started_ms_ = millis();
-  if (!this->screen_seen_.empty())
-    this->screen_seen_[0] = 1;
+  if (!this->screen_seen_.empty() && this->screen_index_ < this->screen_seen_.size())
+    this->screen_seen_[this->screen_index_] = 1;
 }
 
 void PixelLayout::host_shutdown() {

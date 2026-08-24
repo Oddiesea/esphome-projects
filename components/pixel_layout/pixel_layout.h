@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -755,12 +756,41 @@ class PixelLayout : public Component {
   void set_root(Widget *root);
   void add_screen(Widget *root, uint32_t duration_ms);
   void add_screen(Widget *root, uint32_t duration_ms, ScreenTransition transition, uint32_t transition_ms);
-  void set_rotate_ms(uint32_t ms) { this->rotate_ms_ = ms == 0 ? 1 : ms; }
-  void set_transition(ScreenTransition type) { this->transition_ = type; }
-  void set_transition_ms(uint32_t ms) { this->transition_ms_ = ms; }
+  void add_screen(Widget *root, uint32_t duration_ms, ScreenTransition transition, uint32_t transition_ms,
+                  const std::string &id);
+  void set_rotate_ms(uint32_t ms);
+  void set_transition(ScreenTransition type);
+  void set_transition_ms(uint32_t ms);
   void set_screen_loop(bool loop) { this->screen_loop_ = loop; }
-  void set_screen_random(bool random) { this->screen_random_ = random; }
+  void set_screen_random(bool random);
+  bool get_screen_random() const { return this->screen_random_; }
   void set_background(Color color) { this->background_ = color; }
+
+  /** Jump to screen by index or id (cut). Resets dwell; respects pin for auto-advance only. */
+  bool show_screen(size_t index);
+  bool show_screen(const std::string &id);
+  /** Advance to next enabled screen (no-op if pinned or fewer than two enabled). */
+  bool show_next_enabled();
+  void set_pinned(bool pinned);
+  bool is_pinned() const { return this->pinned_; }
+  void set_screen_enabled(size_t index, bool enabled);
+  bool is_screen_enabled(size_t index) const;
+  size_t screen_count() const { return this->screens_.size(); }
+  size_t current_screen_index() const { return this->screen_index_; }
+  const std::string &screen_id(size_t index) const;
+  std::string current_screen_id() const;
+
+  void set_rotate_override(bool on);
+  bool get_rotate_override() const { return this->rotate_override_; }
+  uint32_t get_rotate_ms() const { return this->rotate_ms_; }
+  void set_transition_override(bool on);
+  bool get_transition_override() const { return this->transition_override_; }
+  ScreenTransition get_transition() const { return this->transition_; }
+  uint32_t get_transition_ms() const { return this->transition_ms_; }
+
+  using PlaylistCallback = std::function<void()>;
+  void add_on_playlist_change(PlaylistCallback cb) { this->playlist_cbs_.push_back(std::move(cb)); }
+
   void request_redraw();
   void invalidate_layout();
   void host_init(int width, int height);
@@ -768,6 +798,8 @@ class PixelLayout : public Component {
   void host_set_play(size_t from, size_t to, bool transitioning, uint32_t trans_started_ms, ScreenTransition kind,
                      uint32_t trans_ms);
   void host_paint();
+  /** Advance playlist once (host tests / preview). Honors pin, enables, overrides. */
+  void host_advance(uint32_t now_ms) { this->advance_screens_(now_ms); }
   const uint8_t *host_buffer() const { return this->buffer_; }
   int host_width() const { return this->ctx_.width(); }
   int host_height() const { return this->ctx_.height(); }
@@ -786,10 +818,16 @@ class PixelLayout : public Component {
   void advance_screens_(uint32_t now_ms);
   size_t next_screen_() const;
   size_t choose_next_screen_();
+  bool screen_enabled_(size_t index) const;
+  uint32_t dwell_ms_for_(size_t index) const;
   Widget *active_root_() const;
   void compose_(uint32_t now);
   ScreenTransition transition_for_(size_t index) const;
   uint32_t transition_ms_for_(size_t index) const;
+  void notify_playlist_();
+  void load_prefs_();
+  void save_prefs_();
+  void ensure_enabled_vectors_();
 
   display::Display *display_{nullptr};
   Widget *root_{nullptr};
@@ -797,13 +835,21 @@ class PixelLayout : public Component {
   std::vector<uint32_t> screen_duration_ms_{};
   std::vector<ScreenTransition> screen_transition_{};
   std::vector<uint32_t> screen_transition_ms_{};
+  std::vector<std::string> screen_ids_{};
+  std::vector<uint8_t> screen_enabled_flags_{};
   uint32_t rotate_ms_{8000};
+  uint32_t rotate_default_ms_{8000};
   uint32_t transition_ms_{400};
+  uint32_t transition_default_ms_{400};
   ScreenTransition transition_{ScreenTransition::FADE};
+  ScreenTransition transition_default_{ScreenTransition::FADE};
   ScreenTransition trans_play_{ScreenTransition::FADE};
   uint32_t trans_play_ms_{400};
   bool screen_loop_{true};
   bool screen_random_{false};
+  bool pinned_{false};
+  bool rotate_override_{false};
+  bool transition_override_{false};
   std::vector<uint8_t> screen_seen_{};
   size_t screen_index_{0};
   size_t next_index_{0};
@@ -816,11 +862,16 @@ class PixelLayout : public Component {
   bool dirty_{true};
   bool laid_out_{false};
   uint32_t period_ms_{500};
+  std::vector<PlaylistCallback> playlist_cbs_{};
+  bool prefs_loaded_{false};
 #ifdef USE_FONT
   font::Font *font_{nullptr};
   font::Font *icon_font_{nullptr};
 #endif
 };
+
+const char *screen_transition_name(ScreenTransition t);
+bool screen_transition_from_name(const char *name, ScreenTransition *out);
 
 }  // namespace pixel_layout
 }  // namespace esphome

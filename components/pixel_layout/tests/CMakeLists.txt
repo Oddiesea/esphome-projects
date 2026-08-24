@@ -16,6 +16,7 @@ FetchContent_MakeAvailable(googletest)
 add_library(pixel_layout_lib STATIC
   ../pixel_layout.cpp
   ../widgets.cpp
+  ../playlist_ha.cpp
 )
 target_include_directories(pixel_layout_lib PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs

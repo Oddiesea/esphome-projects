@@ -9,6 +9,7 @@ namespace esphome {
 
 namespace setup_priority {
 constexpr float HARDWARE = 50.0f;
+constexpr float DATA = 600.0f;
 constexpr float PROCESSOR = 200.0f;
 }  // namespace setup_priority
 
