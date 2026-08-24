@@ -57,7 +57,6 @@ display:
     panel_width: ${panel_width}
     panel_height: ${panel_height}
     brightness: ${brightness}
-    driver: FM6126A
     update_interval: 1s  # paint poller; pixel_layout stops it. DMA scan stays ~60 Hz.
 
 number:

@@ -1,8 +1,9 @@
 # Plumber clock layout, fonts, and HA weather import.
 # Overlay PNG lives in assets/arcade_bg.yml (device, not the component).
+# HA time syncs as soon as the API connects (avoids ~1 min SNTP wait).
 time:
   - platform: homeassistant
-    id: sntp_time
+    id: clock_time
     timezone: Europe/London
 
 font:
@@ -116,7 +117,7 @@ pixel_layout:
             height: 27
             color: white
             outline: black
-            time_id: sntp_time
+            time_id: clock_time
             face: digital
             theme: typeface
             blink_colon: true
@@ -146,7 +147,6 @@ pixel_layout:
             color: white
             outline: black
             condition_id: example_weather_condition
-            condition: sunny
             show_condition: true
             text_position: start
             icon_align: top

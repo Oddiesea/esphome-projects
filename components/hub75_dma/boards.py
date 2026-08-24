@@ -41,13 +41,15 @@ REQUIRED_PIN_KEYS = [key for key in PIN_KEYS if key != CONF_E_PIN]
 
 # Waveshare ESP32-S3-RGB-Matrix (SKU 34422). GPIO 3 is a strapping pin on
 # ESP32-S3 but is wired to HUB75 C on this board.
+#
+# Numbered grid with adequate 5V: silk G→red, silk B→green, silk R→blue.
 WAVESHARE_ESP32_S3_RGB_MATRIX = {
-    CONF_R1_PIN: 4,
-    CONF_G1_PIN: 5,
-    CONF_B1_PIN: 6,
-    CONF_R2_PIN: 7,
-    CONF_G2_PIN: 15,
-    CONF_B2_PIN: 16,
+    CONF_R1_PIN: 5,  # silkscreen G1 — red LEDs
+    CONF_G1_PIN: 6,  # silkscreen B1 — green LEDs
+    CONF_B1_PIN: 4,  # silkscreen R1 — blue LEDs
+    CONF_R2_PIN: 15,  # silkscreen G2
+    CONF_G2_PIN: 16,  # silkscreen B2
+    CONF_B2_PIN: 7,  # silkscreen R2
     CONF_A_PIN: 18,
     CONF_B_PIN: 8,
     CONF_C_PIN: {"number": 3, "ignore_strapping_warning": True},

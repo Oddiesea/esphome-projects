@@ -17,7 +17,7 @@ Layout preview: [`configurators/pixel_layout`](../../configurators/pixel_layout/
 | Power | Dedicated 5 V supply. This module is ~20 W peak (~4 A at 5 V); do not power LEDs from USB. |
 | USB | Type-C — flashing and `USB_SERIAL_JTAG` logs |
 
-HUB75 pins are fixed on this board (`board: waveshare-esp32-s3-rgb-matrix`). `e_pin` is required for 1/32-scan (64-row) panels and is included in the preset. `clock_phase` defaults to `false` (avoids a 1-pixel horizontal shift).
+HUB75 pins are fixed on this board (`board: waveshare-esp32-s3-rgb-matrix`). `e_pin` is required for 1/32-scan (64-row) panels and is included in the preset. `clock_phase` defaults to `false` (avoids a 1-pixel horizontal shift). The board silkscreen labels R/G/B, but this panel is GRB relative to those labels — the preset remaps DMA colour channels to the GPIOs that actually drive red, green, and blue.
 
 The board can drive **any HUB75 module size**, stacked in a **grid**, up to **24576 pixels** (neither logical edge above 384). DMA always clocks a single horizontal chain; `chain_type` remaps that into rows.
 
@@ -45,7 +45,7 @@ display:
     # chain_type: top_right_down   # default for a stack
 ```
 
-The example uses [`pixel_layout`](../../components/pixel_layout/) via `plumber-clock.package.yml`. Remap `ha_example_weather_condition_entity` to your Home Assistant weather entity. Preview layouts in [`configurators/pixel_layout/`](../../configurators/pixel_layout/). The Waveshare [Arduino example](https://github.com/waveshareteam/ESP32-S3-RGB-Matrix/blob/main/example/arduino_v3.3.7/01_SimpleTestShapes/01_SimpleTestShapes.ino) sets `driver: FM6126A` and `clock_phase: false`; the board preset does the same. Do not set `update_interval` hoping to change scan rate — that is the ESPHome paint poller, not HUB75 refresh.
+The example uses [`pixel_layout`](../../components/pixel_layout/) via `plumber-clock.package.yml`. Remap `ha_example_weather_condition_entity` to your Home Assistant weather entity. Preview layouts in [`configurators/pixel_layout/`](../../configurators/pixel_layout/). The Waveshare [IDF firmware](https://github.com/waveshareteam/ESP32-S3-RGB-Matrix/blob/main/example/idf_v5.5.2/sdkconfig.defaults) uses a generic shift register (not FM6126A). The Arduino example enables FM6126A; that init can leave indoor panels looking only red/yellow. The board preset sets `clock_phase: false`. Do not set `update_interval` hoping to change scan rate — that is the ESPHome paint poller, not HUB75 refresh. If colours look swapped after a generic driver, try `driver: FM6126A`.
 
 ## Build / flash
 

@@ -1,0 +1,103 @@
+# Static HUB75 colour diagnostic — one screen, numbered blocks (no cycle).
+# Report which number looks which colour (e.g. "1=green 2=red 3=blue …").
+substitutions:
+  panel_width: "128"
+  panel_height: "64"
+  brightness: "100"
+
+esphome:
+  name: waveshare-color-test
+  friendly_name: Waveshare Colour Test
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 32MB
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [hub75_dma]
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  level: INFO
+
+api:
+  encryption:
+    key: !secret waveshare_hub75_api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: Colour Test Fallback
+    password: !secret fallback_wifi_password
+
+captive_portal:
+
+font:
+  - file: "gfonts://Silkscreen"
+    id: label_font
+    size: 10
+    glyphs: "123456"
+
+display:
+  - platform: hub75_dma
+    id: matrix
+    board: waveshare-esp32-s3-rgb-matrix
+    panel_width: ${panel_width}
+    panel_height: ${panel_height}
+    brightness: ${brightness}
+    double_buffer: false
+    i2sspeed: HZ_16M
+    update_interval: 2s
+    lambda: |-
+      // Software colours (silkscreen pin order in boards.py):
+      // 1=R 2=G 3=B 4=Y 5=C 6=W
+      static const Color blocks[] = {
+          Color(255, 0, 0),
+          Color(0, 255, 0),
+          Color(0, 0, 255),
+          Color(255, 255, 0),
+          Color(0, 255, 255),
+          Color(255, 255, 255),
+      };
+      const int cols = 3;
+      const int rows = 2;
+      const int bw = it.get_width() / cols;
+      const int bh = it.get_height() / rows;
+      const int inset = 10;
+      for (int i = 0; i < 6; i++) {
+        const int col = i % cols;
+        const int row = i / cols;
+        const int x = col * bw;
+        const int y = row * bh;
+        it.filled_rectangle(x, y, bw, bh, blocks[i]);
+        it.filled_rectangle(x + 2, y + 2, inset, inset, Color(0, 0, 0));
+        char digit[2] = {static_cast<char>('1' + i), '\0'};
+        it.print(x + 4, y + 2, id(label_font), Color(255, 255, 255), TextAlign::TOP_LEFT, digit);
+      }
+
+number:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Brightness"
+
+switch:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Power"
+    restore_mode: ALWAYS_ON
