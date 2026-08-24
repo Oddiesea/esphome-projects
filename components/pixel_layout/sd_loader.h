@@ -4,8 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace esphome {
-namespace pixel_layout {
+/** Included from pixel_layout.h inside esphome::pixel_layout — do not wrap in namespace here. */
 
 class PixelLayout;
 class Widget;
@@ -23,18 +22,10 @@ struct SdScreenSpec {
 
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
 
-#ifdef USE_IMAGE
-namespace esphome {
-namespace image {
-class Image;
-}  // namespace image
-}  // namespace esphome
-#endif
-
 struct SdOwnedImage {
   std::vector<uint8_t> data;
 #ifdef USE_IMAGE
-  esphome::image::Image *image{nullptr};
+  ::esphome::image::Image *image{nullptr};
   ~SdOwnedImage();
 #endif
 };
@@ -52,6 +43,3 @@ class SdPlaylistLoader {
 };
 
 #endif
-
-}  // namespace pixel_layout
-}  // namespace esphome

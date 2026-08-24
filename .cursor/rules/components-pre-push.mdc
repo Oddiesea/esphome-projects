@@ -1,0 +1,19 @@
+# Component changes: test and compile before push
+
+When editing files under `components/` (or `ci/smoke/` fixtures they depend on):
+
+1. Run **`make ci`** from the repo root before **`git push`**, or at minimum:
+   - `make test COMPONENT=<name>` for each touched component
+   - `make smoke COMPONENT=<name>` for each touched component
+
+2. For **pixel_layout** SD storage, playlist, or HA screen entities: smoke must stay aligned with real device YAML (`sd_storage`, `use_sd_layout`, `screen_label`, `reload_sd_layout`, etc.). The canonical fixture is `ci/smoke/pixel_layout.yml`.
+
+3. Do **not** push component changes if `make ci` fails. Fix compile/test failures first.
+
+4. Prefer **`git push` only after** local verification — GitHub CI is a backstop, not the first line of defense.
+
+Install the repo pre-push hook once:
+
+```bash
+git config core.hooksPath .githooks
+```

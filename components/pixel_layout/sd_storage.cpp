@@ -1,8 +1,6 @@
-#include "sd_storage.h"
+#include "pixel_layout.h"
 
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
-
-#include "pixel_layout.h"
 
 #include "esphome/core/log.h"
 

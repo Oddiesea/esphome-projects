@@ -1,0 +1,11 @@
+#!/bin/sh
+# Run host unit tests + ESPHome smoke compiles before push.
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+echo "pre-push: make ci (host tests + smoke compile)..."
+make ci
+
+echo "pre-push: OK"

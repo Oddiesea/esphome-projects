@@ -62,6 +62,15 @@ text_sensor:
     lambda: |-
       return {"on"};
     update_interval: 60s
+  - platform: pixel_layout
+    type: sd_status
+    pixel_layout_id: matrix_layout
+    name: "SD layout status"
+  - platform: pixel_layout
+    type: screen_label
+    pixel_layout_id: matrix_layout
+    screen_index: 0
+    name: "Screen 1 label"
 
 display:
   - platform: hub75_dma
@@ -82,12 +91,33 @@ switch:
     hub75_dma_id: matrix
     name: "Power"
     restore_mode: ALWAYS_ON
+  - platform: pixel_layout
+    type: use_sd_layout
+    pixel_layout_id: matrix_layout
+    name: "Use SD layout"
+  - platform: pixel_layout
+    type: screen_enabled
+    pixel_layout_id: matrix_layout
+    screen_index: 0
+    name: "Screen slot 1"
+
+button:
+  - platform: pixel_layout
+    type: reload_sd_layout
+    pixel_layout_id: matrix_layout
+    name: "Reload SD layout"
 
 pixel_layout:
+  id: matrix_layout
   display_id: matrix
   font: font_date
   icon_font: icons
   background: black
+  sd_storage:
+    clk_pin: 1
+    cmd_pin: 44
+    d0_pin: 17
+    upload_port: 8080
   root:
     type: stack
     children:

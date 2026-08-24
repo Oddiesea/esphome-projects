@@ -1,8 +1,6 @@
-#include "sd_loader.h"
+#include "pixel_layout.h"
 
 #ifdef USE_PIXEL_LAYOUT_SD_STORAGE
-
-#include "pixel_layout.h"
 
 #include "esphome/core/log.h"
 
@@ -635,7 +633,7 @@ class SdWidgetBuilder {
     if (raw.size() < need)
       return false;
     out->data.assign(p + 12, p + need);
-    auto transparency = chroma ? image::IMAGE_TRANSPARENCY_CHROMAKEY : image::IMAGE_TRANSPARENCY_OPAQUE;
+    auto transparency = chroma ? image::TRANSPARENCY_CHROMA_KEY : image::TRANSPARENCY_OPAQUE;
     out->image = new image::Image(out->data.data(), width, height, image::IMAGE_TYPE_RGB565, transparency);
     if (fw != nullptr)
       *fw = width;
@@ -829,7 +827,7 @@ bool SdPlaylistLoader::load(const std::string &root_path, std::string *err) {
     return false;
   }
 
-  if (!this->host_->apply_sd_playlist(specs, owned, images, err))
+  if (!this->host_->apply_sd_playlist(specs, std::move(owned), std::move(images), err))
     return false;
   if (err)
     *err = "loaded " + std::to_string(specs.size()) + " screens from sd";

@@ -5,8 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace esphome {
-namespace pixel_layout {
+/** Included from pixel_layout.h inside esphome::pixel_layout — do not wrap in namespace here. */
 
 class PixelLayout;
 
@@ -15,7 +14,7 @@ class PixelLayout;
 class SdStorageManager {
  public:
   void configure(const std::string &mount_path, const std::string &root_path, int clk_pin, int cmd_pin, int d0_pin,
-                   uint16_t upload_port);
+                 uint16_t upload_port);
   void set_layout(PixelLayout *layout) { this->layout_ = layout; }
   void setup();
   void loop();
@@ -47,6 +46,3 @@ class SdStorageManager {
 };
 
 #endif
-
-}  // namespace pixel_layout
-}  // namespace esphome

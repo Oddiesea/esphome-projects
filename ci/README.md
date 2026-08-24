@@ -16,6 +16,16 @@ make test COMPONENT=valence_rt
 make smoke COMPONENT=dreo_tuya_mcu
 ```
 
+## Pre-push hook (optional)
+
+Catch compile failures before they reach GitHub / Home Assistant:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-push` runs `make ci` (host tests + smoke compile for every component). Skip once with `git push --no-verify` if you must.
+
 ## Layout
 
 | Path | Purpose |
