@@ -1,0 +1,16 @@
+id: spinner_sheet
+name: spinner
+png: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAQCAIAAAD4YuoOAAAAhElEQVR4nNVUQQrAIAyzsk/laXvBnrZnuYNsplKtlwrLqZiQGMFKkhSKwzi7S5vh55erzXL2rKgGbM2AuNbKlGKy755sauTeUdl3twQT905ADWKQl65f8crc67NsT4P/B2DtN0NGv8lElW17IngloARuiU9ADSYZMKhJBlN6F1UELrsAPDWvJCO+BEPcAAAAAElFTkSuQmCC"
+width: 32
+height: 16
+frame_width: 16
+frame_height: 16
+columns: 2
+rows: 1
+cuts:
+  x: [16]
+  y: []
+frames: 2
+fps: 0.5
+loop: true
+chroma_key: true

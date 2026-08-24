@@ -1,0 +1,75 @@
+# Local dev config — P2 128×64 indoor HUB75, local hub75_dma + pixel_layout.
+substitutions:
+  panel_width: "128"
+  panel_height: "64"
+  brightness: "80"
+  ha_example_weather_condition_entity: weather.home
+
+esphome:
+  name: waveshare-matrix-local
+  friendly_name: Waveshare LED Matrix Local
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 32MB
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [hub75_dma, pixel_layout]
+
+packages:
+  plumber_clock: !include plumber-clock.package.yml
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret waveshare_hub75_api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: Waveshare Matrix Fallback
+    password: !secret fallback_wifi_password
+
+captive_portal:
+
+display:
+  - platform: hub75_dma
+    id: matrix
+    board: waveshare-esp32-s3-rgb-matrix
+    panel_width: ${panel_width}
+    panel_height: ${panel_height}
+    brightness: ${brightness}
+    update_interval: 1s  # pixel_layout stops the display poller and ticks only when dirty
+
+number:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Brightness"
+
+switch:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Power"
+    restore_mode: ALWAYS_ON
+
+button:
+  - platform: restart
+    name: "Reboot"

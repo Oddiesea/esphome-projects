@@ -1,0 +1,78 @@
+{
+  "seven_segment": {
+    "kind": "seven",
+    "digit_w": 16,
+    "digit_h": 28,
+    "thickness": 3,
+    "gap": 2,
+    "colon_w": 6,
+    "colon_gap": 2,
+    "rounded": false,
+    "cell": 0,
+    "cell_gap": 0
+  },
+  "rounded": {
+    "kind": "seven",
+    "digit_w": 16,
+    "digit_h": 32,
+    "thickness": 4,
+    "gap": 2,
+    "colon_w": 6,
+    "colon_gap": 2,
+    "rounded": true,
+    "cell": 0,
+    "cell_gap": 0
+  },
+  "block": {
+    "kind": "matrix",
+    "digit_w": 6,
+    "digit_h": 10,
+    "thickness": 2,
+    "gap": 3,
+    "colon_w": 2,
+    "colon_gap": 2,
+    "rounded": false,
+    "cell": 2,
+    "cell_gap": 0
+  },
+  "tiny": {
+    "kind": "matrix",
+    "digit_w": 3,
+    "digit_h": 5,
+    "thickness": 1,
+    "gap": 1,
+    "colon_w": 1,
+    "colon_gap": 1,
+    "rounded": false,
+    "cell": 1,
+    "cell_gap": 0
+  },
+  "split_flap": {
+    "kind": "split_flap",
+    "digit_w": 22,
+    "digit_h": 36,
+    "thickness": 2,
+    "gap": 3,
+    "colon_w": 8,
+    "colon_gap": 2,
+    "rounded": false,
+    "cell": 4,
+    "cell_gap": 0
+  },
+  "perspective": {
+    "kind": "perspective",
+    "digit_w": 24,
+    "digit_h": 52,
+    "thickness": 4,
+    "thickness_top": 7,
+    "thickness_mid": 4,
+    "thickness_bot": 2,
+    "taper": 10,
+    "gap": 1,
+    "colon_w": 5,
+    "colon_gap": 2,
+    "rounded": false,
+    "cell": 0,
+    "cell_gap": 0
+  }
+}

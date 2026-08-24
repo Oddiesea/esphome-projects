@@ -1,0 +1,183 @@
+# Minimal ESPHome config — compile-test pixel_layout on ESP32-S3 + hub75_dma.
+esphome:
+  name: pixel-layout-test
+  friendly_name: Pixel Layout Component Test
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [hub75_dma, pixel_layout]
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: "ci-ssid"
+  password: "ci-password-not-real"
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: UTC
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_date
+    size: 12
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 :-"
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: icons
+    size: 18
+    glyphs:
+      - "\U0000e81a"  # sunny
+      - "\U0000f15c"  # cloudy
+
+sensor:
+  - platform: template
+    id: outdoor_temp
+    name: "Outdoor temp"
+    unit_of_measurement: "°C"
+    lambda: |-
+      return 21.5;
+    update_interval: 60s
+
+text_sensor:
+  - platform: template
+    id: occupancy
+    lambda: |-
+      return {"on"};
+    update_interval: 60s
+
+display:
+  - platform: hub75_dma
+    id: matrix
+    board: waveshare-esp32-s3-rgb-matrix
+    panel_width: 128
+    panel_height: 64
+    brightness: 80
+    update_interval: 1s
+
+number:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Brightness"
+
+switch:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Power"
+    restore_mode: ALWAYS_ON
+
+pixel_layout:
+  display_id: matrix
+  font: font_date
+  icon_font: icons
+  background: black
+  root:
+    type: stack
+    children:
+      - type: row
+        x: 0
+        y: 2
+        height: 32
+        gap: 4
+        children:
+          - type: clock
+            face: digital
+            theme: seven_segment
+            time_id: sntp_time
+            blink_colon: true
+            color: cyan
+            width: 78
+            height: 28
+            visible:
+              sensor_id: outdoor_temp
+              above: -40
+          - type: text
+            sensor_id: outdoor_temp
+            text: "{value:.1f}"
+            color: orange
+            width: 46
+            animation:
+              type: fade
+              duration: 400ms
+      - type: date
+        time_id: sntp_time
+        style: text
+        format: "%a %d %b"
+        uppercase: true
+        font: font_date
+        x: 36
+        y: 36
+        opacity: 200
+        color: gray
+        visible:
+          or:
+            - sensor_id: outdoor_temp
+              above: -40
+            - text_sensor_id: occupancy
+              state: "on"
+      - type: weather
+        condition: sunny
+        x: 16
+        y: 34
+        width: 18
+        height: 18
+        color: cyan
+      - type: clock
+        face: analog
+        time_id: sntp_time
+        x: 86
+        y: 24
+        width: 40
+        height: 40
+        color: white
+      - type: custom
+        x: 70
+        y: 48
+        width: 7
+        height: 7
+        color: red
+        pixels:
+          - ".XX.XX."
+          - "XXXXXXX"
+          - "XXXXXXX"
+          - "XXXXXXX"
+          - ".XXXXX."
+          - "..XXX.."
+          - "...X..."
+      - type: sprite
+        x: 2
+        y: 46
+        pack:
+          id: spinner_sheet
+          name: spinner
+          png: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAQCAIAAAD4YuoOAAAAhElEQVR4nNVUQQrAIAyzsk/laXvBnrZnuYNsplKtlwrLqZiQGMFKkhSKwzi7S5vh55erzXL2rKgGbM2AuNbKlGKy755sauTeUdl3twQT905ADWKQl65f8crc67NsT4P/B2DtN0NGv8lElW17IngloARuiU9ADSYZMKhJBlN6F1UELrsAPDWvJCO+BEPcAAAAAElFTkSuQmCC"
+          width: 32
+          height: 16
+          frame_width: 16
+          frame_height: 16
+          columns: 2
+          rows: 1
+          cuts:
+            x: [16]
+            y: []
+          frames: 2
+          fps: 8
+          loop: true
+          chroma_key: true

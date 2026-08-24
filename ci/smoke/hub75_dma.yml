@@ -1,0 +1,60 @@
+# Minimal ESPHome config — compile-test hub75_dma on ESP32-S3.
+# Uses the Waveshare ESP32-S3-RGB-Matrix pin preset as a representative board.
+esphome:
+  name: hub75-dma-test
+  friendly_name: HUB75 DMA Component Test
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [hub75_dma]
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: "ci-ssid"
+  password: "ci-password-not-real"
+
+display:
+  - platform: hub75_dma
+    id: matrix
+    board: waveshare-esp32-s3-rgb-matrix
+    panel_width: 128
+    panel_height: 64
+    brightness: 80
+    lambda: |-
+      auto white = Color(255, 255, 255);
+      auto red = Color(255, 0, 0);
+      auto green = Color(0, 255, 0);
+      auto blue = Color(0, 0, 255);
+      it.rectangle(0, 0, it.get_width(), it.get_height(), white);
+      it.filled_rectangle(8, 24, 24, 16, red);
+      it.filled_rectangle(52, 24, 24, 16, green);
+      it.filled_rectangle(96, 24, 24, 16, blue);
+
+number:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Brightness"
+
+switch:
+  - platform: hub75_dma
+    hub75_dma_id: matrix
+    name: "Power"
+    restore_mode: ALWAYS_ON

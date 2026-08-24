@@ -1,0 +1,154 @@
+# Plumber clock layout, fonts, and HA weather import.
+# Overlay PNG lives in assets/arcade_bg.yml (device, not the component).
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/London
+
+font:
+  - file: "gfonts://Silkscreen"
+    id: silkscreen_12
+    size: 12
+    bpp: 1
+  - file: "gfonts://Silkscreen"
+    id: silkscreen_24
+    size: 24
+    bpp: 1
+  - file: "gfonts://Silkscreen"
+    id: silkscreen_8
+    size: 8
+    bpp: 1
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: symbols_outlined_18
+    size: 18
+    glyphsets: []
+    glyphs:
+      - "\U0000efd6"  # schedule
+
+text_sensor:
+  - platform: homeassistant
+    id: example_weather_condition
+    entity_id: ${ha_example_weather_condition_entity}
+    internal: true
+
+pixel_layout:
+  display_id: matrix
+  background: black
+  font: silkscreen_12
+  icon_font: symbols_outlined_18
+  rotate: 8s
+  transition: fade
+  screens:
+    - id: plumber_clock
+      duration: 10s
+      root:
+        type: stack
+        children:
+          - type: sprite
+            x: 0
+            y: 0
+            width: 128
+            height: 64
+            color: white
+            pack: !include assets/arcade_bg.yml
+          - type: custom
+            x: -38
+            y: 0
+            width: 39
+            height: 12
+            color: "#ffffff"
+            pixels: "p4:AScMAAAAARAAAAAAEREAAAAAARAAAAAAABEiEQAAARIiIRAAABEiEQAAAAASIiIhAAEiIiIiEAASIiIhAAAAEiIiIiEBIiIiIiIQEiIiIiEAABIiIRIiIiIiERIiIiIiESIiEAABIiIiIiIiIiIiIiIiIiIiIiEAABIiIiIiIiIiIiIiIiIiIiIiEAABIiIzMyIiIiIiIiIiMzMiIhAAAAEiMzMzMiIiIiIiIzMzMyIQAAAAASMzMzMzMzMzMzMzMzMyEAAAAAABMzMzMAAzMzMAAzMzMxAAAAAAAAMzMwAAAAMwAAAAMzMAAAAA"
+            palette:
+              - "#dce8f4"
+              - "#a8c0d8"
+            animation:
+              type: slide
+              duration: 56s
+              repeat: -1
+              dx: 180
+          - type: custom
+            x: -13
+            y: 4
+            width: 14
+            height: 7
+            color: "#ffffff"
+            pixels: "p4:AQ4HAAEQAAEQAAASIQASIQABIiIRIiIQASIiIiIiEAEiIzMyIhAAEjMzMyEAAAMzADMwAA=="
+            palette:
+              - "#dce8f4"
+              - "#a8c0d8"
+            animation:
+              type: slide
+              duration: 88s
+              delay: 4s
+              repeat: -1
+              dx: 160
+          - type: custom
+            x: -28
+            y: 8
+            width: 29
+            height: 10
+            color: "#ffffff"
+            pixels: "p4:AR0KAAABEAAAAREQAAABEAAAABEiEQABIiIRAAESIRAAEiIiEAEiIiIQASIiIQABIiIiESIiIiIRIiIiEAASIiIiIiIiIiIiIiIhAAEiIzMiIiIiIiIzMiIQAAEjMzMzIiIiIzMzMhAAAAEzMzMzMzMzMzMzEAAAAAMzMwADMzAAMzMwAAAAAAMzAAADMAAAMzAAAA=="
+            palette:
+              - "#dce8f4"
+              - "#a8c0d8"
+            animation:
+              type: slide
+              duration: 72s
+              delay: 12s
+              repeat: -1
+              dx: 168
+          - type: custom
+            x: 44
+            y: 6
+            width: 32
+            height: 16
+            color: "#fc9838"
+            pixels: "p4:ASAQIiIiIiIiIiIiIiIiIiIiIiEREREREREyIREREhERETIhQREREREUEiMzMzIzMzMyIRERERERETIjMzMyMzMzMiEREUREEREyIiIiIiIiIiIhERQREUERMhESEREREhEyIRERERRBETIzMjMzMzIzMiERERFEEREyMzIzMzMyMzIhEREUQRERMiIiIiIiIiIiIRERERERETIhERESERERMiERERRBEREyIzMzMjMzMzIhERERERERMiMzMzIzMzMyIUERERERFBIiIiIiIiIiIiEREREREREyERIRERESETIjMzMzMzMzMjMyMzMzMjMyIiIiIiIiIiIiIiIiIiIiIg=="
+            palette:
+              - "#ac3410"
+              - "#e45c10"
+              - "#000000"
+          - type: clock
+            x: 46
+            y: 22
+            width: 76
+            height: 27
+            color: white
+            outline: black
+            time_id: sntp_time
+            face: digital
+            theme: typeface
+            blink_colon: true
+            font: silkscreen_24
+            format: "%H:%M"
+          - type: custom
+            x: 24
+            y: 14
+            width: 16
+            height: 16
+            color: "#b13425"
+            pixels: "p4:ARAQAAAAAAAAAiIAAAARERACIgAAAREREREiAAADMyIyAzMAADIyIjIjMwAAMjMiIyIjAAAzIiIzMzAAAAAiIiIjAAAzMzEzMTAAAzMzMxMzEAMiMzMzEREQAyIgETESESEzAgMRERERETMAMzERERERMwMzEREREAAAAwAREQAAAAA="
+            palette:
+              - "#e39d25"
+              - "#6a6b04"
+            animation:
+              type: slide
+              duration: 2500ms
+              repeat: -1
+              mode: in_out
+              dy: 8
+          - type: weather
+            x: 6
+            y: 48
+            width: 80
+            height: 16
+            color: white
+            outline: black
+            condition_id: example_weather_condition
+            condition: sunny
+            show_condition: true
+            text_position: start
+            icon_align: top
+            icon_theme: gameman
+            font: silkscreen_8

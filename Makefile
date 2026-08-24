@@ -1,16 +1,19 @@
 DEVICES_DIR := devices
-PROJECTS := solar-plant dreo-nomad
+PROJECTS := solar-plant dreo-nomad waveshare-hub75
 
 include mk/components.mk
 include mk/ci.mk
 
-.PHONY: help clean
+.PHONY: help clean serve
 .PHONY: $(PROJECTS)
 
 help:
 	@echo "ESPHome monorepo"
 	@echo ""
 	@echo "Devices (under $(DEVICES_DIR)/): $(PROJECTS)"
+	@echo ""
+	@echo "Configurator:"
+	@echo "  make serve             pixel_layout UI + HA proxy + MCP (http://127.0.0.1:8765/)"
 	@echo ""
 	@echo "CI / verification:"
 	@echo "  make test              Host unit tests (all components)"
@@ -30,6 +33,9 @@ help:
 clean:
 	@for p in $(PROJECTS); do $(MAKE) -C $(DEVICES_DIR)/$$p clean; done
 	$(MAKE) clean-tests clean-dist
+
+serve:
+	$(MAKE) -C configurators/pixel_layout serve
 
 $(PROJECTS):
 	$(MAKE) -C $(DEVICES_DIR)/$@
