@@ -3,9 +3,12 @@ import { CLOCK_SIZE_THEMES, DEFAULT_FONT, DEFAULT_ICON_FONT, ICON_FONTS, ICON_GL
 import { spriteFileHint, spritePackForWidget } from "./sprites.js";
 import { visibleToYaml, normalizeVisible, ruleToYaml } from "./ha.js";
 import { exampleById, substitutionKey } from "./example_sensors.js";
-import { ROOT_DEFAULTS } from "./root_defaults.js";
+import { ROOT_DEFAULTS, clampBrightnessCompensation, clampVeml7700IntervalMs } from "./root_defaults.js";
 
 export { ROOT_DEFAULTS };
+
+/** Pre-provisioned HA screen slots when SD upload is enabled (matches firmware prefs mask). */
+export const SCREEN_SLOT_COUNT = 32;
 
 export const HUB75_BOARD_OPTIONS = [
   { value: "waveshare-esp32-s3-rgb-matrix", label: "Waveshare ESP32-S3 RGB Matrix" },
@@ -182,8 +185,9 @@ export function widgetToYaml(w, layoutState) {
 
   if (w.type === "weather") {
     if (w.condition_id) o.condition_id = w.condition_id;
-    if (w.condition) o.condition = w.condition;
-    if (!o.condition_id && !o.condition) o.condition = "sunny";
+    // Preview-only `condition` — do not export when HA condition_id is wired (would override live state).
+    else if (w.condition) o.condition = w.condition;
+    else o.condition = "sunny";
     if (w.show_icon === false) o.show_icon = false;
     if (w.show_condition !== false) o.show_condition = true;
     if (w.show_temp) {
@@ -335,7 +339,10 @@ export function fontImportsYaml(state) {
   return lines.join("\n");
 }
 
-/** ESPHome time: blocks for every clock/date time_id (+ fallback). */
+/** Canonical SNTP id — ESPHome rejects multiple SNTP entries with different ids. */
+export const SNTP_TIME_ID = "sntp_time";
+
+/** ESPHome time: HA per id; one shared SNTP block for all other clock/date time sources. */
 export function timeImportsYaml(state) {
   const ids = new Set();
   for (const w of allWidgets(state)) {
@@ -350,19 +357,19 @@ export function timeImportsYaml(state) {
   ids.delete("");
   if (!ids.size) return "";
   const haIds = [];
-  const sntpIds = [];
+  let needsSntp = false;
   for (const id of [...ids].sort()) {
     if (/^ha[_-]?/i.test(id) || /home.?assistant/i.test(id)) haIds.push(id);
-    else sntpIds.push(id);
+    else needsSntp = true;
   }
   const lines = ["time:"];
   for (const id of haIds) {
     lines.push(`  - platform: homeassistant`);
     lines.push(`    id: ${id}`);
   }
-  for (const id of sntpIds) {
+  if (needsSntp) {
     lines.push(`  - platform: sntp`);
-    lines.push(`    id: ${id}`);
+    lines.push(`    id: ${SNTP_TIME_ID}`);
     lines.push(`    servers:`);
     lines.push(`      - time.cloudflare.com`);
     lines.push(`      - 0.pool.ntp.org`);
@@ -472,9 +479,52 @@ function clampBri(n, fallback = 80) {
 }
 
 function clampComp(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return ROOT_DEFAULTS.brightness_compensation;
-  return Math.max(0.1, Math.min(5, Math.round(v * 100) / 100));
+  return clampBrightnessCompensation(n);
+}
+
+function luxSensorId(state) {
+  return (
+    String(state.adaptive_lux_sensor_id || ROOT_DEFAULTS.adaptive_lux_sensor_id || "ambient_lux").trim() ||
+    "ambient_lux"
+  );
+}
+
+function waveshareS3Board(state) {
+  const board = state.hub75_board || ROOT_DEFAULTS.hub75_board;
+  return board === "waveshare-esp32-s3-rgb-matrix";
+}
+
+/** i2c + veml7700 for Waveshare S3 adaptive lux (merged with HA sensor imports). */
+function waveshareAdaptiveHardwareEnabled(state) {
+  return adaptiveBrightnessEnabled(state) && waveshareS3Board(state);
+}
+
+/** i2c bus for adaptive lux on Waveshare ESP32-S3 RGB Matrix. */
+function i2cDeviceYaml(state) {
+  if (!waveshareAdaptiveHardwareEnabled(state)) return "";
+  const sda = state.i2c_sda_pin || ROOT_DEFAULTS.i2c_sda_pin;
+  const scl = state.i2c_scl_pin || ROOT_DEFAULTS.i2c_scl_pin;
+  return [
+    "i2c:",
+    `  sda: ${sda}`,
+    `  scl: ${scl}`,
+    "  scan: true",
+    "  frequency: 100kHz",
+    "",
+  ].join("\n");
+}
+
+/** veml7700 entry merged into the single sensor: block. */
+function veml7700SensorLines(state) {
+  const luxId = luxSensorId(state);
+  return [
+    "  - platform: veml7700",
+    "    address: 0x10",
+    "    update_interval: ${veml7700_update_interval}",
+    "    ambient_light:",
+    `      id: ${luxId}`,
+    '      name: "Ambient light"',
+  ];
 }
 
 export function adaptiveBrightnessEnabled(state) {
@@ -505,6 +555,12 @@ export function toYaml(state, opts = {}) {
     ["brightness", String(brightness)],
   ]);
   if (adaptive) substs.set("brightness_compensation", String(compensation));
+  if (waveshareAdaptiveHardwareEnabled(state)) {
+    substs.set(
+      "veml7700_update_interval",
+      durationYaml(clampVeml7700IntervalMs(state.veml7700_update_interval_ms)),
+    );
+  }
   for (const [key, value] of ha.substitutions) {
     if (!substs.has(key)) substs.set(key, value);
   }
@@ -513,9 +569,11 @@ export function toYaml(state, opts = {}) {
     "# pixel_layout device package — paste into the ESPHome editor or !include as a package.",
     "# One substitutions block (panel size, brightness, HA entities). Remap entity_ids to yours.",
     "# Sprite packs are inlined when loaded in the configurator.",
-    adaptive
-      ? "# Adaptive brightness: add your own i2c + lux sensor (e.g. veml7700) with id matching sensor_id below."
-      : "",
+    adaptive && waveshareS3Board(state)
+      ? "# Adaptive brightness: i2c + veml7700 below (Waveshare S3: GPIO45/GPIO46). Poll interval sets HA lux update rate."
+      : adaptive
+        ? "# Adaptive brightness: wire i2c + lux sensor; sensor_id must match adaptive_brightness below."
+        : "",
     sd
       ? "# SD storage: copy pixel_layout.plbundle to the card or POST wirelessly from this configurator."
       : "",
@@ -524,15 +582,10 @@ export function toYaml(state, opts = {}) {
     timeImportsYaml(state),
     fontImportsYaml(state),
     imageImportsYaml(state),
+    i2cDeviceYaml(state),
     formatHaSensorsYaml(ha.items, {
-      extraTextSensorLines: sd
-        ? [
-            "  - platform: pixel_layout",
-            "    type: sd_status",
-            "    pixel_layout_id: matrix_layout",
-            '    name: "SD layout status"',
-          ]
-        : [],
+      extraSensorLines: waveshareAdaptiveHardwareEnabled(state) ? veml7700SensorLines(state) : [],
+      extraTextSensorLines: pixelLayoutTextSensorLines(state),
     }),
     hub75DeviceYaml(state),
     layoutYamlOnly(state),
@@ -551,6 +604,30 @@ function substitutionsYaml(substs) {
   return lines.join("\n");
 }
 
+/** pixel_layout text_sensor entities (SD status + per-slot screen labels). */
+function pixelLayoutTextSensorLines(state, plId = "matrix_layout") {
+  if (!sdStorageEnabled(state)) return [];
+  const screenIds = exportedScreenIds(state);
+  const lines = [
+    "  - platform: pixel_layout",
+    "    type: sd_status",
+    `    pixel_layout_id: ${plId}`,
+    '    name: "SD layout status"',
+  ];
+  for (let i = 0; i < SCREEN_SLOT_COUNT; i++) {
+    const sid = screenIds[i];
+    const name = sid ? `Screen ${i + 1} label` : `Screen slot ${i + 1} label`;
+    lines.push(
+      "  - platform: pixel_layout",
+      "    type: screen_label",
+      `    pixel_layout_id: ${plId}`,
+      `    screen_index: ${i}`,
+      `    name: "${name}"`,
+    );
+  }
+  return lines;
+}
+
 /** hub75_dma display + brightness/power (+ optional adaptive) + pixel_layout playlist HA controls. */
 export function hub75DeviceYaml(state) {
   const id = state.display_id || ROOT_DEFAULTS.display_id;
@@ -558,9 +635,7 @@ export function hub75DeviceYaml(state) {
   const adaptive = adaptiveBrightnessEnabled(state);
   const night = nightScheduleEnabled(state);
   const sd = sdStorageEnabled(state);
-  const luxId =
-    String(state.adaptive_lux_sensor_id || ROOT_DEFAULTS.adaptive_lux_sensor_id || "ambient_lux").trim() ||
-    "ambient_lux";
+  const luxId = luxSensorId(state);
   const minB = clampBri(state.adaptive_brightness_min ?? ROOT_DEFAULTS.adaptive_brightness_min, 8);
   const maxB = clampBri(state.adaptive_brightness_max ?? ROOT_DEFAULTS.adaptive_brightness_max, 255);
   const lo = Math.min(minB, maxB);
@@ -682,15 +757,18 @@ export function hub75DeviceYaml(state) {
       '    name: "Use SD layout"',
     );
   }
-  screenIds.forEach((sid, i) => {
+  const screenSlotCount = sd ? SCREEN_SLOT_COUNT : screenIds.length;
+  for (let i = 0; i < screenSlotCount; i++) {
+    const sid = screenIds[i];
+    const name = sid ? `Screen: ${sid}` : `Screen slot ${i + 1}`;
     lines.push(
       "  - platform: pixel_layout",
       "    type: screen_enabled",
       `    pixel_layout_id: ${plId}`,
       `    screen_index: ${i}`,
-      `    name: "Screen: ${sid}"`,
+      `    name: "${name}"`,
     );
-  });
+  }
   lines.push(
     "",
     "select:",

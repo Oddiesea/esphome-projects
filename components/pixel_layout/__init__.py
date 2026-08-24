@@ -34,7 +34,7 @@ from .sprite_pack import validate_pack
 
 CODEOWNERS = ["@liamjones"]
 DEPENDENCIES = ["display"]
-AUTO_LOAD = ["image", "select", "switch", "number", "button"]
+AUTO_LOAD = ["image", "select", "switch", "number", "button", "text_sensor"]
 
 CONF_PIXEL_LAYOUT_ID = "pixel_layout_id"
 CONF_SCREEN_INDEX = "screen_index"
